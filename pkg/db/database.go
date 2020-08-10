@@ -26,7 +26,16 @@ func NewDatabase(username, password, dbname string) (Database, error) {
 	//	return &Queries{}, err
 	//}
 
-	return &Queries{inPlace: make(map[uint64]*DBUser), DB: db}, nil
+	user := &DBUser{
+		ID:                 1,
+		Credentials:        Credentials{Username: "admin@example.com", Password: "password"},
+		FullName:           "Admin",
+		Phone:              "00000",
+		Address:            "Network",
+		SignedUpWithGoogle: false,
+	}
+
+	return &Queries{inPlace: map[uint64]*DBUser{user.ID: user}, DB: db, lastId: 1}, nil
 }
 
 func (q *Queries) CreateUser(u *DBUser) (*DBUser, error) {

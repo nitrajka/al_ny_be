@@ -173,7 +173,7 @@ func (a *app) GetUserById(c *gin.Context) {
 
 	u, err := a.Database.GetUserById(userId)
 	if err != nil {
-		c.JSON(http.StatusNotFound, "user does not exist")
+		c.JSON(http.StatusUnauthorized, "user does not exist")
 		return
 	}
 
