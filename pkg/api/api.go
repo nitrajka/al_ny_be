@@ -1,15 +1,10 @@
 package api
 
 import (
-	"fmt"
-	"net/http"
-	"os"
-	"strconv"
-
-	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
 	"github.com/nitrajka/al_ny/pkg/auth"
 	"github.com/nitrajka/al_ny/pkg/db"
+	"net/http"
 )
 
 type UserServer struct {
@@ -27,7 +22,6 @@ func NewUserServer(app Application) (*UserServer, error) {
 	router.POST("/signup", app.Signup)
 
 	router.GET("/user", TokenAuthMiddleWare(), app.GetUserById)
-	router.POST("/user", TokenAuthMiddleWare(), app.CreateUser)
 	router.PUT("/user", TokenAuthMiddleWare(), app.UpdateUser)
 
 	us.Engine = router
@@ -43,7 +37,6 @@ type Application interface {
 	Login(c *gin.Context)
 	Logout(c *gin.Context)
 	Signup(c *gin.Context)
-	CreateUser(c *gin.Context)
 	UpdateUser(c *gin.Context)
 	GetUserById(c *gin.Context)
 }
@@ -96,13 +89,12 @@ func (a *app) Login(c *gin.Context) {
 		c.JSON(http.StatusUnprocessableEntity, saveErr.Error())
 	}
 
-	tokens := map[string]string{
-		"access_token":  token.AccessToken,
-		"refresh_token": token.RefreshToken,
-	}
-
 	c.Header("HttpOnly", "True")
-	c.JSON(http.StatusOK, tokens)
+	resp := db.SignUpResponse{
+		Token: token.AccessToken,
+		User:  *db.DBUserToUser(*user),
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (a *app) Logout(c *gin.Context) {
@@ -155,101 +147,17 @@ func (a *app) Signup(c *gin.Context) {
 	saveErr := a.auth.CreateAuth(u.ID, token)
 	if saveErr != nil {
 		c.JSON(http.StatusUnprocessableEntity, saveErr.Error())
+		return
 	}
-
-	response := struct {
-		string
-		*db.User
-	}{token.AccessToken, u}
 
 	c.Header("HttpOnly", "True")
-	c.JSON(http.StatusCreated, response)
-}
-
-func (a *app) Refresh(c *gin.Context) {
-	mapToken := make(map[string]string)
-	if err := c.ShouldBindJSON(&mapToken); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, err.Error())
-		return
-	}
-
-	refreshToken := mapToken["refresh_token"]
-
-	token, err := auth.ParseTokenAndVerifyMethod(refreshToken, os.Getenv("REFRESH_SECRET"))
-	if err != nil || !token.Valid {
-		c.JSON(http.StatusUnauthorized, "refresh token expired")
-		return
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		c.JSON(http.StatusUnauthorized, "refresh token expired")
-		return
-	}
-
-	refreshUuid, ok := claims["refresh_uuid"].(string)
-	if !ok {
-		c.JSON(http.StatusUnprocessableEntity, err)
-		return
-	}
-
-	userId, err := strconv.ParseUint(fmt.Sprintf("%.f", claims["user_id"]), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusUnprocessableEntity, "Error occurred")
-		return
-	}
-
-	deleted, err := a.auth.DeleteAuth(refreshUuid)
-	if err != nil || deleted == 0 {
-		c.JSON(http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	at, err := a.auth.CreateToken(userId)
-	if err != nil {
-		c.JSON(http.StatusForbidden, err.Error())
-		return
-	}
-
-	err = a.auth.CreateAuth(userId, at)
-	if err != nil {
-		c.JSON(http.StatusForbidden, err.Error())
-		return
-	}
-
-	tokens := map[string]string{
-		"access_token":  at.AccessToken,
-		"refresh_token": at.RefreshToken,
-	}
-
-	c.JSON(http.StatusCreated, tokens)
+	c.JSON(http.StatusCreated, db.SignUpResponse{
+		Token: token.AccessToken,
+		User: *db.DBUserToUser(*u),
+	})
 }
 
 //--------------------------------------------------------------------------
-func (a *app) CreateUser(c *gin.Context) {
-	var u *db.User
-	if err := c.ShouldBindJSON(&u); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, "invalid json")
-		return
-	}
-
-	tokenAuth, err := a.auth.ExtractTokenMetadata(c.Request)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	userId, err := a.auth.FetchAuth(tokenAuth)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	u.ID = userId
-
-	c.JSON(http.StatusOK, u)
-}
-
 func (a *app) GetUserById(c *gin.Context) {
 	tokenAuth, err := a.auth.ExtractTokenMetadata(c.Request)
 	if err != nil {
@@ -269,7 +177,7 @@ func (a *app) GetUserById(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, u)
+	c.JSON(http.StatusOK, db.DBUserToUser(*u))
 }
 
 func (a *app) UpdateUser(c *gin.Context) {
@@ -302,5 +210,5 @@ func (a *app) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, newUser)
+	c.JSON(http.StatusOK, db.DBUserToUser(*newUser))
 }

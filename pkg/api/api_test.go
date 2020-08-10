@@ -15,11 +15,11 @@ import (
 )
 
 type mockDB struct {
-	inPlace map[uint64]*db.User
+	inPlace map[uint64]*db.DBUser
 	lastId  uint64
 }
 
-func (q *mockDB) CreateUser(u *db.User) (*db.User, error) {
+func (q *mockDB) CreateUser(u *db.DBUser) (*db.DBUser, error) {
 	u.ID = q.lastId + 1
 	q.lastId += 1
 	q.inPlace[u.ID] = u
@@ -27,22 +27,22 @@ func (q *mockDB) CreateUser(u *db.User) (*db.User, error) {
 	return u, nil
 }
 
-func (q *mockDB) GetUserById(ID uint64) (*db.User, error) {
+func (q *mockDB) GetUserById(ID uint64) (*db.DBUser, error) {
 	if ID > q.lastId {
-		return &db.User{}, errors.New("sorry, such user does not exist")
+		return &db.DBUser{}, errors.New("sorry, such user does not exist")
 	}
 
 	return q.inPlace[ID], nil
 }
 
-func (q *mockDB) UpdateUser(u *db.UpdateUserBody) (*db.User, error) {
+func (q *mockDB) UpdateUser(u *db.UpdateUserBody) (*db.DBUser, error) {
 	if u.ID > q.lastId {
-		return &db.User{}, errors.New("sorry, such user does not exist")
+		return &db.DBUser{}, errors.New("sorry, such user does not exist")
 	}
 
 	oldUser := q.inPlace[u.ID]
 
-	newUser := &db.User{
+	newUser := &db.DBUser{
 		ID:          oldUser.ID,
 		Credentials: db.Credentials{u.Username, oldUser.Password},
 		FullName:    u.FullName,
@@ -54,22 +54,22 @@ func (q *mockDB) UpdateUser(u *db.UpdateUserBody) (*db.User, error) {
 	return q.inPlace[newUser.ID], nil
 }
 
-func (q *mockDB) UserExistsByCredentials(cred db.Credentials) (*db.User, bool) {
+func (q *mockDB) UserExistsByCredentials(cred db.Credentials) (*db.DBUser, bool) {
 	for id := range q.inPlace {
 		if q.inPlace[id].Username == cred.Username {
 			return q.inPlace[id], true
 		}
 	}
 
-	return &db.User{}, false
+	return &db.DBUser{}, false
 }
 
 func TestAuthWithPassword(t *testing.T) {
-	datab := &mockDB{inPlace: map[uint64]*db.User{
+	datab := &mockDB{inPlace: map[uint64]*db.DBUser{
 		1: {1, db.Credentials{"email@example.com", "password"},
-			"User Novotny", "09090909", "cool address", false},
+			"DBUser Novotny", "09090909", "cool address", false},
 		2: {2, db.Credentials{"example@gmail.com", "password"},
-			"User Pekna", "090909", "very cool address", true},
+			"DBUser Pekna", "090909", "very cool address", true},
 	}, lastId: 1}
 
 	aut, err := auth.NewAuthentication("localhost:7001")
@@ -92,10 +92,11 @@ func TestAuthWithPassword(t *testing.T) {
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, request)
-		//token := getTokenFromResponse(t, response.Body)
+		userWithToken := getUserWithToken(t, response.Body)
+
 
 		assertStatus(t, response.Code, http.StatusOK)
-		//tokenValid()
+		assertUser(t, userWithToken.User, *db.DBUserToUser(*datab.inPlace[1]))
 	})
 
 	t.Run("test empty login credentials", func(t *testing.T) {
@@ -145,17 +146,14 @@ func TestAuthWithPassword(t *testing.T) {
 	})
 
 	t.Run("test signup successful", func(t *testing.T) {
-		request := newPostSignupRequest(t, "emailik@example.com", "password")
+		newMail := "emailik@example.com"
+		request := newPostSignupRequest(t, newMail, "password")
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, request)
-		body := getBodyOfSignupResponse(t, response.Body)
-		expected := struct {
-			token string
-			user  *db.User
-		}{"", &db.User{
-			ID: 2, Credentials: db.Credentials{"emailik@exmaple.com", "password"},
-			FullName: "", Phone: "", Address: ""}}
+		body := getUserWithToken(t, response.Body)
+		expected := &db.SignUpResponse{Token:"", User: db.User{
+			ID: 2, Username: newMail, FullName: "", Phone: "", Address: "", SignedUpWithGoogle: false}}
 
 		assertStatus(t, response.Code, http.StatusCreated)
 		assertSignupResponseBody(t, body, expected)
@@ -174,7 +172,7 @@ func TestAuthWithPassword(t *testing.T) {
 }
 
 func TestUsersWithPasswordAuth(t *testing.T) {
-	datab := &mockDB{inPlace: map[uint64]*db.User{
+	datab := &mockDB{inPlace: map[uint64]*db.DBUser{
 		1: {1, db.Credentials{"email@example.com", "password"},
 			"Petra Novotna", "09090909", "cool address", false},
 		2: {2, db.Credentials{"example@gmail.com", "password"},
@@ -215,20 +213,30 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 		user := getUserFromResponse(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusOK)
-		assertUser(t, datab.inPlace[1], user)
+		assertUser(t, *db.DBUserToUser(*datab.inPlace[1]), *user)
 	})
 
 	t.Run("update user successfully", func(t *testing.T) {
-		user := datab.inPlace[1]
-		user.FullName = "Petra Novakova"
+		dbuser := datab.inPlace[1]
+		user := &db.UpdateUserBody{
+			ID:       dbuser.ID,
+			Username: dbuser.Username,
+			FullName: "Petra Novakova",
+			Phone:    dbuser.Phone,
+			Address:  dbuser.Address,
+		}
+
 		request := newPutUserRequest(t, user, at.AccessToken)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, request)
 		newUser := getUserFromResponse(t, response.Body)
 
+		expected := db.DBUserToUser(*dbuser)
+		expected.FullName = "Petra Novakova"
+
 		assertStatus(t, response.Code, http.StatusOK)
-		assertUser(t, newUser, user)
+		assertUser(t, *newUser, *expected)
 	})
 
 	invalidToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3NfdXVpZCI6Ijg2ZDEzZDRlLTNiMGMtNDA5ZC05YWEwLTBiZTkxZmZlMTgxYSIsImF1dGhvcmlzZWQiOnRydWUsImV4cCI6MTU5Njk3Mzg5MiwidXNlcl9pZCI6MX0.lyY0Q6qWf2jCU_I-mp4KLummRTJ6J0weYqA-2lUPdPs"
@@ -245,7 +253,15 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 	})
 
 	t.Run("cannot update user without auth", func(t *testing.T) {
-		user := datab.inPlace[1]
+		dbuser := datab.inPlace[1]
+		user := &db.UpdateUserBody{
+			ID:       dbuser.ID,
+			Username: dbuser.Username,
+			FullName: dbuser.FullName,
+			Phone:    dbuser.Phone,
+			Address:  dbuser.Address,
+		}
+
 		user.FullName = "Petra Novakova"
 		request := newPutUserRequest(t, user, invalidToken)
 		response := httptest.NewRecorder()
@@ -258,7 +274,14 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 	})
 
 	t.Run("cannot update user without auth", func(t *testing.T) {
-		user := datab.inPlace[3]
+		dbuser := datab.inPlace[3]
+		user := &db.UpdateUserBody{
+			ID:       dbuser.ID,
+			Username: dbuser.Username,
+			FullName: dbuser.FullName,
+			Phone:    dbuser.Phone,
+			Address:  dbuser.Address,
+		}
 		user.FullName = "Petra Novakova"
 		request := newPutUserRequest(t, user, at.AccessToken)
 		response := httptest.NewRecorder()
@@ -304,7 +327,7 @@ func newGetUserRequest(t *testing.T, token string) *http.Request {
 	return req
 }
 
-func newPutUserRequest(t *testing.T, u *db.User, token string) *http.Request {
+func newPutUserRequest(t *testing.T, u *db.UpdateUserBody, token string) *http.Request {
 	req, err := http.NewRequest(
 		http.MethodPut,
 		"/user",
@@ -326,16 +349,10 @@ func newPutUserRequest(t *testing.T, u *db.User, token string) *http.Request {
 
 //------------------------------decode response helpers--------------------------------
 
-func getBodyOfSignupResponse(t *testing.T, buff *bytes.Buffer) struct {
-	token string
-	user  *db.User
-} {
+func getUserWithToken(t *testing.T, buff *bytes.Buffer) *db.SignUpResponse {
 	t.Helper()
 
-	var resp struct {
-		token string
-		user  *db.User
-	}
+	var resp *db.SignUpResponse
 
 	err := json.NewDecoder(buff).Decode(&resp)
 	if err != nil {
@@ -371,7 +388,7 @@ func getUserFromResponse(t *testing.T, resp *bytes.Buffer) (user *db.User) {
 
 	err := json.NewDecoder(resp).Decode(&user)
 	if err != nil {
-		t.Errorf("error while decoding User in response: %v", err)
+		t.Errorf("error while decoding DBUser in response: %v", err)
 	}
 
 	return
@@ -393,23 +410,20 @@ func assertMessage(t *testing.T, actual, expected string) {
 	}
 }
 
-func assertSignupResponseBody(t *testing.T, actual, expected struct {
-	token string
-	user  *db.User
-}) {
+func assertSignupResponseBody(t *testing.T, actual, expected *db.SignUpResponse) {
 	t.Helper()
 
-	assertUser(t, actual.user, expected.user)
+	assertUser(t, actual.User, expected.User)
 }
 
-func assertUser(t *testing.T, actual, expected *db.User) {
+func assertUser(t *testing.T, actual, expected db.User) {
 	t.Helper()
 
 	if actual.ID != expected.ID ||
 		actual.FullName != expected.FullName ||
 		actual.Address != expected.Address ||
 		actual.Phone != expected.Phone ||
-		actual.Password != expected.Password ||
+		actual.Username != expected.Username ||
 		actual.SignedUpWithGoogle != expected.SignedUpWithGoogle {
 		t.Errorf("user does not match: actual: %v, expected: %v", actual, expected)
 	}

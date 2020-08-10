@@ -8,16 +8,16 @@ import (
 )
 
 type Queries struct {
-	inPlace map[uint64]*User
+	inPlace map[uint64]*DBUser
 	lastId  uint64
 	*sql.DB
 }
 
 type Database interface {
-	CreateUser(u *User) (*User, error)
-	GetUserById(ID uint64) (*User, error)
-	UpdateUser(newUser *UpdateUserBody) (*User, error)
-	UserExistsByCredentials(cred Credentials) (*User, bool)
+	CreateUser(u *DBUser) (*DBUser, error)
+	GetUserById(ID uint64) (*DBUser, error)
+	UpdateUser(newUser *UpdateUserBody) (*DBUser, error)
+	UserExistsByCredentials(cred Credentials) (*DBUser, bool)
 }
 
 func NewDatabase(username, password, dbname string) (Database, error) {
@@ -26,10 +26,10 @@ func NewDatabase(username, password, dbname string) (Database, error) {
 	//	return &Queries{}, err
 	//}
 
-	return &Queries{inPlace: make(map[uint64]*User), DB: db}, nil
+	return &Queries{inPlace: make(map[uint64]*DBUser), DB: db}, nil
 }
 
-func (q *Queries) CreateUser(u *User) (*User, error) {
+func (q *Queries) CreateUser(u *DBUser) (*DBUser, error) {
 	u.ID = q.lastId + 1
 	q.lastId += 1
 	q.inPlace[u.ID] = u
@@ -37,22 +37,22 @@ func (q *Queries) CreateUser(u *User) (*User, error) {
 	return u, nil
 }
 
-func (q *Queries) GetUserById(ID uint64) (*User, error) {
+func (q *Queries) GetUserById(ID uint64) (*DBUser, error) {
 	if ID > q.lastId {
-		return &User{}, errors.New("sorry, such user does not exist")
+		return &DBUser{}, errors.New("sorry, such user does not exist")
 	}
 
 	return q.inPlace[ID], nil
 }
 
-func (q *Queries) UpdateUser(u *UpdateUserBody) (*User, error) {
+func (q *Queries) UpdateUser(u *UpdateUserBody) (*DBUser, error) {
 	if u.ID > q.lastId {
-		return &User{}, errors.New("sorry, such user does not exist")
+		return &DBUser{}, errors.New("sorry, such user does not exist")
 	}
 
 	oldUser := q.inPlace[u.ID]
 
-	newUser := &User{
+	newUser := &DBUser{
 		ID:          oldUser.ID,
 		Credentials: Credentials{u.Username, oldUser.Password},
 		FullName:    u.FullName,
@@ -64,12 +64,12 @@ func (q *Queries) UpdateUser(u *UpdateUserBody) (*User, error) {
 	return q.inPlace[newUser.ID], nil
 }
 
-func (q *Queries) UserExistsByCredentials(cred Credentials) (*User, bool) {
+func (q *Queries) UserExistsByCredentials(cred Credentials) (*DBUser, bool) {
 	for id := range q.inPlace {
 		if q.inPlace[id].Username == cred.Username {
 			return q.inPlace[id], true
 		}
 	}
 
-	return &User{}, false
+	return &DBUser{}, false
 }
