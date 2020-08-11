@@ -22,6 +22,7 @@ type mockDB struct {
 func (q *mockDB) CreateUser(u *db.DBUser) (*db.DBUser, error) {
 	u.ID = q.lastId + 1
 	q.lastId += 1
+	u.Password, _ = db.HashPassword(u.Password)
 	q.inPlace[u.ID] = u
 
 	return u, nil
@@ -35,12 +36,12 @@ func (q *mockDB) GetUserById(ID uint64) (*db.DBUser, error) {
 	return q.inPlace[ID], nil
 }
 
-func (q *mockDB) UpdateUser(u *db.UpdateUserBody) (*db.DBUser, error) {
-	if u.ID > q.lastId {
+func (q *mockDB) UpdateUser(u *db.UpdateUserBody, userId uint64) (*db.DBUser, error) {
+	if userId > q.lastId {
 		return &db.DBUser{}, errors.New("sorry, such user does not exist")
 	}
 
-	oldUser := q.inPlace[u.ID]
+	oldUser := q.inPlace[userId]
 
 	newUser := &db.DBUser{
 		ID:          oldUser.ID,
@@ -54,28 +55,31 @@ func (q *mockDB) UpdateUser(u *db.UpdateUserBody) (*db.DBUser, error) {
 	return q.inPlace[newUser.ID], nil
 }
 
-func (q *mockDB) UserExistsByCredentials(cred db.Credentials) (*db.DBUser, bool) {
+func (q *mockDB) UserExistsByCredentials(cred db.Credentials) (*db.DBUser, bool, error) {
 	for id := range q.inPlace {
 		if q.inPlace[id].Username == cred.Username {
-			return q.inPlace[id], true
+			return q.inPlace[id], true, nil
 		}
 	}
 
-	return &db.DBUser{}, false
+	return &db.DBUser{}, false, nil
 }
 
 func TestAuthWithPassword(t *testing.T) {
+	p1, _ := db.HashPassword("password")
 	datab := &mockDB{inPlace: map[uint64]*db.DBUser{
-		1: {1, db.Credentials{"email@example.com", "password"},
+		1: {1, db.Credentials{"email@example.com", p1},
 			"DBUser Novotny", "09090909", "cool address", false},
-		2: {2, db.Credentials{"example@gmail.com", "password"},
+		2: {2, db.Credentials{"example@gmail.com", p1},
 			"DBUser Pekna", "090909", "very cool address", true},
 	}, lastId: 1}
 
-	aut, err := auth.NewAuthentication("localhost:7001")
-	if err != nil {
-		t.Errorf("could not connect to redis")
-	}
+	//aut, err := auth.NewRedisAuthentication("localhost:7001")
+	//if err != nil {
+	//	t.Errorf("could not connect to redis")
+	//}
+
+	aut := auth.NewSessionAuth([]byte("secret-key"))
 
 	ma, err := NewApp(datab, aut)
 	if err != nil {
@@ -87,7 +91,7 @@ func TestAuthWithPassword(t *testing.T) {
 		t.Errorf("could not create server: %v", err)
 	}
 
-	t.Run("test successful login", func(t *testing.T) {
+	t.Run("test successful login + logout", func(t *testing.T) {
 		request := newPostLoginRequest(t, "email@example.com", "password")
 		response := httptest.NewRecorder()
 
@@ -97,6 +101,15 @@ func TestAuthWithPassword(t *testing.T) {
 
 		assertStatus(t, response.Code, http.StatusOK)
 		assertUser(t, userWithToken.User, *db.DBUserToUser(*datab.inPlace[1]))
+
+		request = newPostLogoutRequest(t, userWithToken.Token, userWithToken.User.ID)
+		response = httptest.NewRecorder()
+
+		server.ServeHTTP(response, request)
+		msg := getMessageFromResponse(t, response.Body)
+
+		assertStatus(t, response.Code, http.StatusOK)
+		assertMessage(t, msg,"successfully logged out")
 	})
 
 	t.Run("test empty login credentials", func(t *testing.T) {
@@ -172,19 +185,17 @@ func TestAuthWithPassword(t *testing.T) {
 }
 
 func TestUsersWithPasswordAuth(t *testing.T) {
+	p1, _ := db.HashPassword("password")
 	datab := &mockDB{inPlace: map[uint64]*db.DBUser{
-		1: {1, db.Credentials{"email@example.com", "password"},
+		1: {1, db.Credentials{"email@example.com", p1},
 			"Petra Novotna", "09090909", "cool address", false},
-		2: {2, db.Credentials{"example@gmail.com", "password"},
+		2: {2, db.Credentials{"example@gmail.com", p1},
 			"Katka Pekna", "090909", "very cool address", true},
-		3: {3, db.Credentials{"mail@example.com", "password"},
+		3: {3, db.Credentials{"mail@example.com", p1},
 			"Janko Mrkvicka", "090909", "lives with Katka", false},
 	}, lastId: 1}
 
-	aut, err := auth.NewAuthentication("localhost:7001")
-	if err != nil {
-		t.Errorf("could not connect to redis")
-	}
+	aut := auth.NewSessionAuth([]byte("secret-key"))
 
 	ma, err := NewApp(datab, aut)
 	if err != nil {
@@ -196,38 +207,50 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 		t.Errorf("could not create server: %v", err)
 	}
 
-	at, err := aut.CreateToken(1)
-	if err != nil {
-		t.Error("could not create token for user")
-	}
-	err = aut.CreateAuth(1, at)
-	if err != nil {
-		t.Error("could not store token in redis")
-	}
-
 	t.Run("get user successfully", func(t *testing.T) {
-		request := newGetUserRequest(t, at.AccessToken)
+		request := newPostLoginRequest(t, "email@example.com", "password")
 		response := httptest.NewRecorder()
+
+		server.ServeHTTP(response, request)
+		userWithToken := getUserWithToken(t, response.Body)
+
+		assertStatus(t, response.Code, http.StatusOK)
+		assertUser(t, userWithToken.User, *db.DBUserToUser(*datab.inPlace[1]))
+
+
+		fmt.Println(userWithToken.Token, userWithToken.User.ID)
+		request = newGetUserRequest(t, userWithToken.Token, userWithToken.User.ID)
+		response = httptest.NewRecorder()
 
 		server.ServeHTTP(response, request)
 		user := getUserFromResponse(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusOK)
 		assertUser(t, *db.DBUserToUser(*datab.inPlace[1]), *user)
+
 	})
 
 	t.Run("update user successfully", func(t *testing.T) {
+		request := newPostLoginRequest(t, "email@example.com", "password")
+		response := httptest.NewRecorder()
+
+		server.ServeHTTP(response, request)
+		userWithToken := getUserWithToken(t, response.Body)
+
+		assertStatus(t, response.Code, http.StatusOK)
+		assertUser(t, userWithToken.User, *db.DBUserToUser(*datab.inPlace[1]))
+
+
 		dbuser := datab.inPlace[1]
 		user := &db.UpdateUserBody{
-			ID:       dbuser.ID,
 			Username: dbuser.Username,
 			FullName: "Petra Novakova",
 			Phone:    dbuser.Phone,
 			Address:  dbuser.Address,
 		}
 
-		request := newPutUserRequest(t, user, at.AccessToken)
-		response := httptest.NewRecorder()
+		request = newPutUserRequest(t, user, userWithToken.Token, dbuser.ID)
+		response = httptest.NewRecorder()
 
 		server.ServeHTTP(response, request)
 		newUser := getUserFromResponse(t, response.Body)
@@ -242,20 +265,19 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 	invalidToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3NfdXVpZCI6Ijg2ZDEzZDRlLTNiMGMtNDA5ZC05YWEwLTBiZTkxZmZlMTgxYSIsImF1dGhvcmlzZWQiOnRydWUsImV4cCI6MTU5Njk3Mzg5MiwidXNlcl9pZCI6MX0.lyY0Q6qWf2jCU_I-mp4KLummRTJ6J0weYqA-2lUPdPs"
 
 	t.Run("cannot get user without auth", func(t *testing.T) {
-		request := newGetUserRequest(t, invalidToken)
+		request := newGetUserRequest(t, invalidToken, 1)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, request)
 		msg := getMessageFromResponse(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusUnauthorized)
-		assertMessage(t, msg, "signature is invalid")
+		assertMessage(t, msg, "unauthorized")
 	})
 
 	t.Run("cannot update user without auth", func(t *testing.T) {
 		dbuser := datab.inPlace[1]
 		user := &db.UpdateUserBody{
-			ID:       dbuser.ID,
 			Username: dbuser.Username,
 			FullName: dbuser.FullName,
 			Phone:    dbuser.Phone,
@@ -263,7 +285,26 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 		}
 
 		user.FullName = "Petra Novakova"
-		request := newPutUserRequest(t, user, invalidToken)
+		request := newPutUserRequest(t, user, invalidToken, dbuser.ID)
+		response := httptest.NewRecorder()
+
+		server.ServeHTTP(response, request)
+		msg := getMessageFromResponse(t, response.Body)
+
+		assertStatus(t, response.Code, http.StatusUnauthorized)
+		assertMessage(t, msg, "unauthorized")
+	})
+
+	t.Run("cannot update user without auth", func(t *testing.T) {
+		dbuser := datab.inPlace[3]
+		user := &db.UpdateUserBody{
+			Username: dbuser.Username,
+			FullName: dbuser.FullName,
+			Phone:    dbuser.Phone,
+			Address:  dbuser.Address,
+		}
+		user.FullName = "Petra Novakova"
+		request := newPutUserRequest(t, user, invalidToken, dbuser.ID)
 		response := httptest.NewRecorder()
 
 		server.ServeHTTP(response, request)
@@ -271,26 +312,6 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 
 		assertStatus(t, response.Code, http.StatusUnauthorized)
 		assertMessage(t, msg, "signature is invalid")
-	})
-
-	t.Run("cannot update user without auth", func(t *testing.T) {
-		dbuser := datab.inPlace[3]
-		user := &db.UpdateUserBody{
-			ID:       dbuser.ID,
-			Username: dbuser.Username,
-			FullName: dbuser.FullName,
-			Phone:    dbuser.Phone,
-			Address:  dbuser.Address,
-		}
-		user.FullName = "Petra Novakova"
-		request := newPutUserRequest(t, user, at.AccessToken)
-		response := httptest.NewRecorder()
-
-		server.ServeHTTP(response, request)
-		msg := getMessageFromResponse(t, response.Body)
-
-		assertStatus(t, response.Code, http.StatusUnauthorized)
-		assertMessage(t, msg, "cannot update different user")
 	})
 }
 
@@ -307,6 +328,18 @@ func newPostLoginRequest(t *testing.T, username, password string) *http.Request 
 	return req
 }
 
+func newPostLogoutRequest(t *testing.T, token string, id uint64) *http.Request {
+	req, err := http.NewRequest(http.MethodPost, "/logout", strings.NewReader(fmt.Sprintf(`%d`, id)))
+	if err != nil {
+		t.Errorf("something went wrong creating a request: %v", err)
+		return nil
+	}
+
+	req.Header.Add("Authorization", token)
+
+	return req
+}
+
 func newPostSignupRequest(t *testing.T, username, password string) *http.Request {
 	req, err := http.NewRequest(
 		http.MethodPost,
@@ -318,31 +351,29 @@ func newPostSignupRequest(t *testing.T, username, password string) *http.Request
 	return req
 }
 
-func newGetUserRequest(t *testing.T, token string) *http.Request {
-	req, err := http.NewRequest(http.MethodGet, "/user", nil)
-	req.Header.Add("Authorization", token)
+func newGetUserRequest(t *testing.T, token string, userId uint64) *http.Request {
+	path := "/user/" + fmt.Sprintf(`%d`, userId)
+	req, err := http.NewRequest(http.MethodGet, path, nil)
 	if err != nil {
 		t.Errorf("something went wrong creating a request: %v", err)
 	}
+
+	req.Header.Add("Authorization", token)
 	return req
 }
 
-func newPutUserRequest(t *testing.T, u *db.UpdateUserBody, token string) *http.Request {
+func newPutUserRequest(t *testing.T, u *db.UpdateUserBody, token string, userId uint64) *http.Request {
+	path := "/user/" + fmt.Sprintf(`%d`, userId)
 	req, err := http.NewRequest(
 		http.MethodPut,
-		"/user",
+		path,
 		strings.NewReader(
-			fmt.Sprintf(
-				`{"id": %d, 
-				"address": "%s", 
-				"phone": "%s",
-				"fullname": "%s", 
-				"username": "%s" }`, u.ID, u.Address, u.Phone, u.FullName, u.Username)))
-
-	req.Header.Add("Authorization", token)
+			fmt.Sprintf(`{"address": "%s", "phone": "%s", "fullname": "%s", "username": "%s" }`, u.Address, u.Phone, u.FullName, u.Username)))
 	if err != nil {
 		t.Errorf("something went wrong creating a request: %v", err)
 	}
+
+	req.Header.Add("Authorization", token)
 
 	return req
 }
@@ -357,19 +388,22 @@ func getUserWithToken(t *testing.T, buff *bytes.Buffer) *db.SignUpResponse {
 	err := json.NewDecoder(buff).Decode(&resp)
 	if err != nil {
 		t.Errorf("signup response incorrect: %v", err.Error())
+		return nil
 	}
 
 	return resp
 }
 
-func getTokenFromResponse(t *testing.T, resp *bytes.Buffer) (token string) {
+func getTokenFromResponse(t *testing.T, resp *bytes.Buffer) string {
 	t.Helper()
-	err := json.NewDecoder(resp).Decode(&token)
+
+	var sr *db.SignUpResponse
+	err := json.NewDecoder(resp).Decode(&sr)
 	if err != nil {
 		t.Error("error while decoding token from response")
 	}
 
-	return
+	return sr.Token
 }
 
 func getMessageFromResponse(t *testing.T, resp *bytes.Buffer) (msg string) {

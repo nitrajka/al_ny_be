@@ -2,14 +2,20 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/nitrajka/al_ny/pkg/auth"
 )
 
-func TokenAuthMiddleWare() gin.HandlerFunc {
+func (a *app) TokenAuthMiddleWare() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		err := auth.IsTokenValid(c.Request)
+		idS := c.Param("id")
+		_, err := strconv.Atoi(idS)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, "invalid user ID")
+		}
+
+		_, err = a.auth.FetchAuth(c, idS)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, "signature is invalid")
 			c.Abort()

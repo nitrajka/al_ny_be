@@ -34,7 +34,6 @@ func NewUser(username, password, fullname, phone, address string, googleRegistra
 }
 
 type UpdateUserBody struct {
-	ID       uint64 `json:"id"`
 	Username string `json:"username"`
 	FullName string `json:"fullname"`
 	Phone    string `json:"phone"`
@@ -51,4 +50,11 @@ func DBUserToUser(u1 DBUser) *User {
 type SignUpResponse struct {
 	Token string `json:"token"`
 	User User `json:"user"`
+}
+
+type GoogleResponse struct {
+	Id string			`json:"id"`
+	Email string		`json:"email"`
+	VerifiedEmail bool	`json:"verified_email"`
+	Picture string		`json:"picture"`
 }

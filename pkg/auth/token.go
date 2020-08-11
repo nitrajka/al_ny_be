@@ -1,14 +1,13 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
+	"github.com/dgrijalva/jwt-go"
+	"github.com/twinj/uuid"
 	"net/http"
 	"os"
 	"strconv"
-	"time"
-
-	"github.com/dgrijalva/jwt-go"
-	"github.com/twinj/uuid"
 )
 
 type tokenservice struct{}
@@ -26,30 +25,15 @@ func (t *tokenservice) CreateToken(ID uint64) (*AuthToken, error) {
 	var err error
 
 	td := &AuthToken{}
-	td.AtExpires = time.Now().Add(time.Minute * 15).Unix()
-	td.RtExpires = time.Now().Add(time.Hour * 24 * 7).Unix()
 	td.AccessUuid = uuid.NewV4().String()
-	td.RefreshToken = uuid.NewV4().String()
 
 	atClaims := jwt.MapClaims{}
 	atClaims["authorized"] = true
 	atClaims["access_uuid"] = td.AccessUuid
 	atClaims["user_id"] = ID
-	atClaims["exp"] = td.AtExpires
 	at := jwt.NewWithClaims(jwt.SigningMethodHS256, atClaims)
 
-	td.AccessToken, err = at.SignedString([]byte(os.Getenv("ACCESS_SECRET")))
-	if err != nil {
-		return &AuthToken{}, err
-	}
-
-	rtClaims := jwt.MapClaims{}
-	rtClaims["refresh_uuid"] = td.RefreshUuid
-	rtClaims["user_id"] = ID
-	rtClaims["exp"] = td.RtExpires
-	rt := jwt.NewWithClaims(jwt.SigningMethodHS256, rtClaims)
-
-	td.RefreshToken, err = rt.SignedString([]byte(os.Getenv("REFRESH_SECRET")))
+	td.AccessToken, err = at.SignedString([]byte(os.Getenv("ACCESS_SECRET"))) // todo
 	if err != nil {
 		return &AuthToken{}, err
 	}
@@ -68,6 +52,7 @@ func (t *tokenservice) ExtractTokenMetadata(r *http.Request) (*AccessDetails, er
 		if !ok {
 			return nil, err
 		}
+
 		userId, err := strconv.ParseUint(fmt.Sprintf("%.f", claims["user_id"]), 10, 64)
 		if err != nil {
 			return nil, err
@@ -77,14 +62,14 @@ func (t *tokenservice) ExtractTokenMetadata(r *http.Request) (*AccessDetails, er
 			UserId:     userId,
 		}, nil
 	}
-	return nil, err
+	return nil, errors.New("could not decode claims from token")
 }
 
 func ParseTokenAndVerifyMethod(tokenString, secret string) (*jwt.Token, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		//Make sure that the token method conform to "SigningMethodHMAC"
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			return nil, errors.New(fmt.Sprintf("unexpected signing method: %v", token.Header["alg"]))
 		}
 		return []byte(secret), nil
 	})
@@ -93,7 +78,12 @@ func ParseTokenAndVerifyMethod(tokenString, secret string) (*jwt.Token, error) {
 }
 
 func ExtractToken(r *http.Request) string {
-	return r.Header.Get("Authorization")
+	res := r.Header.Get("Authorization")
+	if res[len(res)-1] == ',' {
+		return res[:len(res)-1]
+	}
+
+	return res
 }
 
 func IsTokenValid(r *http.Request) error {
@@ -109,7 +99,8 @@ func IsTokenValid(r *http.Request) error {
 
 func VerifyToken(r *http.Request) (*jwt.Token, error) {
 	tokenString := ExtractToken(r)
-	token, err := ParseTokenAndVerifyMethod(tokenString, os.Getenv("ACCESS_SECRET"))
+	fmt.Println("tokenString:"+ tokenString)
+	token, err := ParseTokenAndVerifyMethod(tokenString, os.Getenv("ACCESS_SECRET")) //todo
 	if err != nil {
 		return nil, err
 	}
