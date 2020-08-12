@@ -2,32 +2,27 @@ package main
 
 import (
 	"fmt"
-	"github.com/nitrajka/al_ny/pkg/db"
-	"os"
-
-	"github.com/joho/godotenv"
 	"github.com/nitrajka/al_ny/pkg/api"
 	"github.com/nitrajka/al_ny/pkg/auth"
+	"github.com/nitrajka/al_ny/pkg/db"
+	"os"
 )
 
 func main() {
-	err := godotenv.Load()
-	if err != nil {
-		exit("could not load .env variables")
-	}
 
 	datab, err := db.NewMysqlDatabase(
 		os.Getenv("DB_USERNAME"), os.Getenv("DB_PASSWORD"),
-		os.Getenv("DB_NAME"), os.Getenv("DB_PORT"))
+		os.Getenv("DB_NAME"), "3306", os.Getenv("DB_HOST"))
+
 	if err != nil {
 		exit("app terminated: could not connect to db: " + err.Error())
 	}
 
-	rc, err := api.NewRedisClient(
-		LoadEnvAddress("REDIS_HOST", "REDIS_PORT", "6379", "localhost"))
-	if err != nil {
-		exit("app terminated: could not connect to db: " + err.Error())
-	}
+	//rc, err := api.NewRedisClient(
+	//	LoadEnvAddress("REDIS_HOST", "REDIS_PORT", "6379", "localhost"))
+	//if err != nil {
+	//	exit("app terminated: could not connect to db: " + err.Error())
+	//}
 
 	authent1 := auth.NewSessionAuth([]byte("secret")) //todo
 
@@ -37,7 +32,7 @@ func main() {
 		os.Getenv("SMTP_HOST"), os.Getenv("SMTP_PORT"))
 
 
-	app, err := api.NewApp(datab, authent1, config, rc)
+	app, err := api.NewApp(datab, authent1, config, nil)
 	if err != nil {
 		exit("app terminated: could not create new App")
 	}
@@ -47,8 +42,8 @@ func main() {
 		exit("app terminated: " + err.Error())
 	}
 
-	err = server.Engine.Run(
-		LoadEnvAddress("HOST", "PORT", "8080", "localhost"))
+	err = server.Engine.Run(":" + os.Getenv("PORT"))
+		//LoadEnvAddress("HOST", "PORT", "8080", "localhost"))
 	if err != nil {
 		exit("app terminated")
 	}

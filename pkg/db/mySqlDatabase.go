@@ -10,8 +10,8 @@ type dbClient struct {
 	mysql *sql.DB
 }
 
-func NewMysqlDatabase(username, password, dbname, dbport string) (Database, error) {
-	db, err := sql.Open("mysql", username+":"+password+"@tcp(127.0.0.1:"+dbport+")/"+dbname)
+func NewMysqlDatabase(username, password, dbname, dbport, dbhost string) (Database, error) {
+	db, err := sql.Open("mysql", username+":"+password+"@tcp("+dbhost+":"+dbport+")/"+dbname)
 	if err != nil {
 		return nil, err
 	}

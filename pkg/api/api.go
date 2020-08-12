@@ -24,6 +24,7 @@ func NewUserServer(app Application) (*UserServer, error) {
 
 	router := gin.Default()
 
+	router.GET("/test", app.Test)
 	router.POST("/login", app.Login)
 	router.POST("/login/google", app.GoogleLogin)
 	router.POST("/logout", app.Logout)
@@ -38,6 +39,10 @@ func NewUserServer(app Application) (*UserServer, error) {
 
 	us.Engine = router
 	return us, nil
+}
+
+func (a *app) Test(c *gin.Context) {
+	c.JSON(http.StatusOK, "")
 }
 
 func (a *app) Login(c *gin.Context) {

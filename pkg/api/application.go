@@ -44,6 +44,7 @@ type Application interface {
 	TokenAuthMiddleWare() gin.HandlerFunc
 	ValidateToken(c *gin.Context)
 	UpdatePassword(c *gin.Context)
+	Test(c *gin.Context)
 }
 
 func NewApp(datab db.Database, aut auth.Authentication, config *SmtpConfig, rc *redis.Client) (Application, error) {
