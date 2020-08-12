@@ -23,16 +23,21 @@ func main() {
 		exit("app terminated: could not connect to db: " + err.Error())
 	}
 
-	//authent, err := auth.NewRedisAuthentication(
-	//	LoadEnvAddress("REDIS_HOST", "REDIS_PORT", "6379", "localhost"))
-	//if err != nil {
-	//	exit("app terminated: could not connect to db: " + err.Error())
-	//}
+	rc, err := api.NewRedisClient(
+		LoadEnvAddress("REDIS_HOST", "REDIS_PORT", "6379", "localhost"))
+	if err != nil {
+		exit("app terminated: could not connect to db: " + err.Error())
+	}
 
 	authent1 := auth.NewSessionAuth([]byte("secret")) //todo
 
 	//app, err := api.NewApp(datab, authent)
-	app, err := api.NewApp(datab, authent1)
+	config := api.NewSmtpConfig(os.Getenv("EMAIL_SERVICE_USERNAME"),
+		os.Getenv("EMAIL_SERVICE_PASSWORD"), os.Getenv("EMAIL_FROM_FIELD"),
+		os.Getenv("SMTP_HOST"), os.Getenv("SMTP_PORT"))
+
+
+	app, err := api.NewApp(datab, authent1, config, rc)
 	if err != nil {
 		exit("app terminated: could not create new App")
 	}

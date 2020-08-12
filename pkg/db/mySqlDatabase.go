@@ -152,3 +152,19 @@ func (d *dbClient) UserExistsByCredentials(cred Credentials) (*DBUser, bool, err
 		SignedUpWithGoogle: signedUpWithGoogle,
 	}, true, nil
 }
+
+func (d *dbClient) ResetPassword(cred Credentials) error {
+	query, err := d.mysql.Prepare("UPDATE users SET password = ? WHERE username = ?")
+
+	hashedP, err := HashPassword(cred.Password)
+	if err != nil {
+		return err
+	}
+
+	_, err = query.Exec(hashedP, cred.Username)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

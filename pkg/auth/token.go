@@ -33,7 +33,7 @@ func (t *tokenservice) CreateToken(ID uint64) (*AuthToken, error) {
 	atClaims["user_id"] = ID
 	at := jwt.NewWithClaims(jwt.SigningMethodHS256, atClaims)
 
-	td.AccessToken, err = at.SignedString([]byte(os.Getenv("ACCESS_SECRET"))) // todo
+	td.AccessToken, err = at.SignedString([]byte(os.Getenv("ACCESS_SECRET")))
 	if err != nil {
 		return &AuthToken{}, err
 	}
@@ -99,8 +99,7 @@ func IsTokenValid(r *http.Request) error {
 
 func VerifyToken(r *http.Request) (*jwt.Token, error) {
 	tokenString := ExtractToken(r)
-	fmt.Println("tokenString:"+ tokenString)
-	token, err := ParseTokenAndVerifyMethod(tokenString, os.Getenv("ACCESS_SECRET")) //todo
+	token, err := ParseTokenAndVerifyMethod(tokenString, os.Getenv("ACCESS_SECRET"))
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/sessions"
 )
@@ -23,6 +24,7 @@ func NewSessionAuth(key []byte) Authentication {
 
 
 func (sc *sessionClient) FetchAuth(c *gin.Context, key string) (string, error) {
+	fmt.Println(sc.session.Values)
 	if value, ok := sc.session.Values[key]; ok {
 		return value.(string), nil
 	}
