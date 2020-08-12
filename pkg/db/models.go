@@ -40,10 +40,22 @@ type UpdateUserBody struct {
 	Address  string `json:"address"`
 }
 
+type UpdateUserBodyGoogleSigned struct {
+	FullName string `json:"fullname"`
+	Phone    string `json:"phone"`
+	Address  string `json:"address"`
+}
+
 func DBUserToUser(u1 DBUser) *User {
 	return &User {
 		ID: u1.ID, FullName: u1.FullName, Address: u1.Address, Phone: u1.Phone, SignedUpWithGoogle: u1.SignedUpWithGoogle,
 		Username: u1.Username,
+	}
+}
+
+func DBUserToUpdateUserBody(u1 DBUser) *UpdateUserBody {
+	return &UpdateUserBody {
+		FullName: u1.FullName, Address: u1.Address, Phone: u1.Phone, Username: u1.Username,
 	}
 }
 

@@ -79,7 +79,7 @@ func ParseTokenAndVerifyMethod(tokenString, secret string) (*jwt.Token, error) {
 
 func ExtractToken(r *http.Request) string {
 	res := r.Header.Get("Authorization")
-	if res[len(res)-1] == ',' {
+	if len(res) > 0 && res[len(res)-1] == ',' {
 		return res[:len(res)-1]
 	}
 

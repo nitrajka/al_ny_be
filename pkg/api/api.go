@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/nitrajka/al_ny/pkg/auth"
 	"github.com/nitrajka/al_ny/pkg/db"
@@ -79,6 +80,8 @@ func (a *app) Login(c *gin.Context) {
 	}
 
 	err = a.auth.CreateAuth(c, strconv.Itoa(int(user.ID)), token.AccessUuid)
+	fmt.Println("creating new auth")
+	fmt.Println(strconv.Itoa(int(user.ID)), token.AccessUuid)
 	if err != nil {
 		c.JSON(http.StatusUnprocessableEntity, err.Error())
 	}
@@ -94,13 +97,13 @@ func (a *app) Login(c *gin.Context) {
 func (a *app) Logout(c *gin.Context) {
 	var id uint64
 	if err := c.ShouldBindJSON(&id); err != nil {
-		c.JSON(http.StatusUnprocessableEntity, "must provide user ID in body") // todo fe
+		c.JSON(http.StatusUnprocessableEntity, "must provide user ID in body")
 		return
 	}
 
 	user, err := a.Database.GetUserById(id)
 	if err != nil {
-		c.JSON(http.StatusUnprocessableEntity, "cannot logout non existent user") // todo fe
+		c.JSON(http.StatusUnprocessableEntity, "cannot logout non existent user")
 		return
 	}
 
@@ -127,7 +130,7 @@ func (a *app) Logout(c *gin.Context) {
 	}
 
 	if deleted == 0 {
-		c.JSON(http.StatusUnprocessableEntity, "already logged out")
+		c.JSON(http.StatusOK, "already logged out")
 		return
 	}
 
@@ -197,19 +200,19 @@ func (a *app) GoogleLogin(c *gin.Context) {
 
 	contents, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, "unauthorized")
+		c.JSON(http.StatusUnauthorized, "unauthorized1")
 		return
 	}
 
 	var gr *db.GoogleResponse
 	err = json.Unmarshal(contents, &gr)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, "unauthorized")
+		c.JSON(http.StatusUnauthorized, "unauthorized2")
 		return
 	}
 
 	if !gr.VerifiedEmail {
-		c.JSON(http.StatusUnauthorized, "unauthorized")
+		c.JSON(http.StatusUnauthorized, "unauthorized3")
 		return
 	}
 
@@ -222,21 +225,35 @@ func (a *app) GoogleLogin(c *gin.Context) {
 		Address:            "",
 		SignedUpWithGoogle: true,
 	}
-	us, err := a.Database.CreateUser(dbUser)
+
+	u, exists, err := a.Database.UserExistsByCredentials(db.Credentials{Username: gr.Email})
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
-	err = a.auth.CreateAuth(c, strconv.Itoa(int(us.ID)), token)
+	if !exists {
+		us, err := a.Database.CreateUser(dbUser)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, "unauthorized4")
+			return
+		}
+		dbUser = us
+	}
+
+	dbUser = u
+
+	err = a.auth.CreateAuth(c, strconv.Itoa(int(dbUser.ID)), token)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, "unauthorized")
+		c.JSON(http.StatusInternalServerError, "unauthorized5")
 		return
 	}
 
+	fmt.Println(token)
+
 	resp := &db.SignUpResponse{
 		Token: token,
-		User:  *db.DBUserToUser(*us),
+		User:  *db.DBUserToUser(*dbUser),
 	}
 
 	c.JSON(http.StatusOK, resp)
@@ -288,6 +305,8 @@ func (a *app) GetUserById(c *gin.Context) {
 		return
 	}
 
+	fmt.Println(tokenAuth.UserId, accessUuid)
+
 	c.JSON(http.StatusOK, db.DBUserToUser(*u))
 }
 
@@ -302,6 +321,8 @@ func (a *app) UpdateUser(c *gin.Context) {
 		return
 	}
 
+	fmt.Println(user.ID)
+
 	if user.SignedUpWithGoogle {
 		savedToken, err := a.auth.FetchAuth(c, idS)
 		if err != nil {
@@ -315,7 +336,24 @@ func (a *app) UpdateUser(c *gin.Context) {
 			return
 		}
 
-		c.JSON(http.StatusOK, db.DBUserToUser(*user))
+		var u *db.UpdateUserBodyGoogleSigned
+		if err := c.ShouldBindJSON(&u); err != nil {
+			c.JSON(http.StatusUnprocessableEntity, "invalid json")
+			return
+		}
+
+		user.FullName = u.FullName
+		user.Address = u.Address
+		user.Phone = u.Phone
+
+		newUser, err := a.Database.UpdateUser(db.DBUserToUpdateUserBody(*user), uint64(id))
+		if err != nil {
+			c.JSON(http.StatusUnprocessableEntity, "could not update:" + err.Error())
+			return
+		}
+
+
+		c.JSON(http.StatusOK, db.DBUserToUser(*newUser))
 		return
 	}
 
@@ -331,6 +369,7 @@ func (a *app) UpdateUser(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	fmt.Println(accessUuid, tokenAuth.AccessUuid)
 
 	if accessUuid != tokenAuth.AccessUuid || uint64(id) != tokenAuth.UserId {
 		c.JSON(http.StatusUnauthorized, "unauthorized")

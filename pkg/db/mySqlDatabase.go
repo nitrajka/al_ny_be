@@ -122,13 +122,20 @@ func (d *dbClient) UpdateUser(u *UpdateUserBody, id uint64) (*DBUser, error) { /
 }
 
 func (d *dbClient) UserExistsByCredentials(cred Credentials) (*DBUser, bool, error) {
-	query, err := d.mysql.Prepare("SELECT * from users WHERE username = ?")
+	query, err := d.mysql.Prepare("SELECT id, username, password, fullname, phone, address, signedUpGoogle from users WHERE username = ?")
 	if err != nil {
 		return &DBUser{}, false, err
 	}
 
-	var u *mysqlUser
-	err = query.QueryRow(cred.Username).Scan(&u)
+	var id int
+	var username string
+	var password string
+	var fullname string
+	var phone string
+	var address string
+	var signedUpWithGoogle bool
+
+	err = query.QueryRow(cred.Username).Scan(&id, &username, &password, &fullname, &phone, &address, &signedUpWithGoogle)
 	if err != nil {
 		if err.Error() == "sql: no rows in result set" {
 			return &DBUser{}, false, nil
@@ -136,5 +143,12 @@ func (d *dbClient) UserExistsByCredentials(cred Credentials) (*DBUser, bool, err
 		return &DBUser{}, false, err
 	}
 
-	return MysqlUserToDBUser(u), true, nil
+	return &DBUser{
+		ID:                 uint64(id),
+		Credentials:        Credentials{Username: username, Password: password},
+		FullName:           fullname,
+		Phone:              phone,
+		Address:            address,
+		SignedUpWithGoogle: signedUpWithGoogle,
+	}, true, nil
 }
