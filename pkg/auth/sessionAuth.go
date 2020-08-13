@@ -11,28 +11,28 @@ type sessionClient struct {
 	sessionsStore *sessions.CookieStore
 	session *sessions.Session
 	*tokenservice
+	sessionName string
 }
 
-func NewSessionAuth(key []byte) Authentication {
+func NewSessionAuth(key []byte, sessionName string) Authentication {
 	store := sessions.NewCookieStore(key)
 	return &sessionClient{
 		sessionsStore: store,
-		session: sessions.NewSession(store, "default"),
+		session: sessions.NewSession(store, sessionName),
 		tokenservice: NewTokenService(),
 	}
 }
 
-
-func (sc *sessionClient) FetchAuth(c *gin.Context, key string) (string, error) {
+func (sc *sessionClient) FetchAuth(c *gin.Context, key string) (interface{}, error) {
 	fmt.Println(sc.session.Values)
 	if value, ok := sc.session.Values[key]; ok {
-		return value.(string), nil
+		return value, nil
 	}
 
 	return "", errors.New("session does not exist")
 }
 
-func (sc *sessionClient) CreateAuth(c *gin.Context, key string, value string) error {
+func (sc *sessionClient) CreateAuth(c *gin.Context, key string, value interface{}) error {
 	sc.session.Values[key] = value
 
 	err := sc.session.Save(c.Request, c.Writer)

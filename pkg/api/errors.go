@@ -2,16 +2,16 @@ package api
 
 import "fmt"
 
-func NotFoundUserError(err error) string {
-	return fmt.Sprintf("User with id: %v does not exist.\n", err)
+func NotFoundUserError(key string, value string) string {
+	return fmt.Sprintf("User with %v: %v does not exist.\n", key, value)
 }
 
 func InvalidBodyError(err error) string {
-	return fmt.Sprintf("Could not create user, invalid body parameters: %v.\n", err)
+	return fmt.Sprintf("Invalid body parameters: %v.\n", err)
 }
 
 func InvalidLoginType(err error) string {
-	return fmt.Sprintf("Use the kind of login as during registration.")
+	return fmt.Sprintf("Use the kind of login as during registration. %v", err)
 }
 
 func InternalServerError(err error) string {
@@ -35,5 +35,9 @@ func InvalidPathParam(err error) string {
 }
 
 func ResetPasswordError(err error) string {
-	return fmt.Sprintf("error occured durin password reset: %v", err)
+	return fmt.Sprintf("An error occured during password reset: %v", err)
+}
+
+func UnauthorizedEmail() string {
+	return fmt.Sprintf("For security reasons, this email is not allowed fto reset password. Please contact author to change that.")
 }

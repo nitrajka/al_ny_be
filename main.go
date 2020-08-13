@@ -9,30 +9,23 @@ import (
 )
 
 func main() {
-
 	datab, err := db.NewMysqlDatabase(
 		os.Getenv("DB_USERNAME"), os.Getenv("DB_PASSWORD"),
-		os.Getenv("DB_NAME"), "3306", os.Getenv("DB_HOST"))
+		os.Getenv("DB_NAME"), os.Getenv("DB_PORT"), os.Getenv("DB_HOST"))
 
 	if err != nil {
 		exit("app terminated: could not connect to db: " + err.Error())
 	}
 
-	//rc, err := api.NewRedisClient(
-	//	LoadEnvAddress("REDIS_HOST", "REDIS_PORT", "6379", "localhost"))
-	//if err != nil {
-	//	exit("app terminated: could not connect to db: " + err.Error())
-	//}
+	rc := auth.NewSessionAuth([]byte(os.Getenv("RESET_PASS_SESS_SECRET")), "resetpass") // todo
+	authent := auth.NewSessionAuth([]byte(os.Getenv("AUTH_SECRET")), "default") //todo
 
-	authent1 := auth.NewSessionAuth([]byte("secret")) //todo
-
-	//app, err := api.NewApp(datab, authent)
 	config := api.NewSmtpConfig(os.Getenv("EMAIL_SERVICE_USERNAME"),
 		os.Getenv("EMAIL_SERVICE_PASSWORD"), os.Getenv("EMAIL_FROM_FIELD"),
 		os.Getenv("SMTP_HOST"), os.Getenv("SMTP_PORT"))
 
 
-	app, err := api.NewApp(datab, authent1, config, nil)
+	app, err := api.NewApp(datab, authent, config, rc)
 	if err != nil {
 		exit("app terminated: could not create new App")
 	}
@@ -43,25 +36,9 @@ func main() {
 	}
 
 	err = server.Engine.Run(":" + os.Getenv("PORT"))
-		//LoadEnvAddress("HOST", "PORT", "8080", "localhost"))
 	if err != nil {
 		exit("app terminated")
 	}
-}
-
-func LoadEnvAddress(hostEnvName, portEnvName, defaultPort, defaultHost string) string {
-	host := os.Getenv(hostEnvName)
-	port := os.Getenv(portEnvName)
-
-	if host == "" {
-		host = defaultHost
-	}
-
-	if port == "" {
-		port = defaultPort
-	}
-
-	return host + ":" + port
 }
 
 func exit(msg string) {

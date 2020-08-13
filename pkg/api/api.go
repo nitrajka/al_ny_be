@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/smtp"
 	"strconv"
+	"time"
 )
 
 type UserServer struct {
@@ -61,12 +62,12 @@ func (a *app) Login(c *gin.Context) {
 	//find user and compare user
 	user, exists, err := a.Database.UserExistsByCredentials(cred)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, InternalServerError(fmt.Errorf("database error")))
+		c.JSON(http.StatusInternalServerError, InternalServerError(fmt.Errorf("database error %v", err)))
 		return
 	}
 
 	if !exists {
-		c.JSON(http.StatusNotFound, NotFoundUserError(fmt.Errorf(strconv.Itoa(int(user.ID)))))
+		c.JSON(http.StatusNotFound, NotFoundUserError("email", cred.Username))
 		return
 	}
 
@@ -76,7 +77,7 @@ func (a *app) Login(c *gin.Context) {
 	}
 
 	if !db.CheckPasswordHash(cred.Password, user.Password)  {
-		c.JSON(http.StatusUnauthorized, IncorrectPasswordError(fmt.Errorf(strconv.Itoa(int(user.ID)))))
+		c.JSON(http.StatusUnauthorized, IncorrectPasswordError(fmt.Errorf(user.Username)))
 		return
 	}
 
@@ -157,7 +158,7 @@ func (a *app) Signup(c *gin.Context) {
 
 	u, exists, err := a.Database.UserExistsByCredentials(cred)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, NotFoundUserError(fmt.Errorf(strconv.Itoa(int(u.ID)))))
+		c.JSON(http.StatusBadRequest, NotFoundUserError("email", strconv.Itoa(int(u.ID))))
 		return
 	}
 
@@ -265,6 +266,7 @@ func (a *app) GoogleLogin(c *gin.Context) {
 			return
 		}
 
+		t = t.(string)
 		if t != token {
 			c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
 			return
@@ -310,7 +312,7 @@ func (a *app) GetUserById(c *gin.Context) {
 
 	u, err := a.Database.GetUserById(uint64(id))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, NotFoundUserError(fmt.Errorf("database error")))
+		c.JSON(http.StatusBadRequest, NotFoundUserError("ID", fmt.Sprintf("%v. database error %v", u.ID, err)))
 		return
 	}
 
@@ -320,6 +322,7 @@ func (a *app) GetUserById(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, UnauthorizedError(err))
 			return
 		}
+		savedToken = savedToken.(string)
 
 		token := auth.ExtractToken(c.Request)
 		if token != savedToken {
@@ -342,6 +345,7 @@ func (a *app) GetUserById(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, UnauthorizedError(err))
 		return
 	}
+	accessUuid = accessUuid.(string)
 
 	if accessUuid != tokenAuth.AccessUuid || uint64(id) != tokenAuth.UserId {
 		c.JSON(http.StatusUnauthorized,  UnauthorizedError(nil))
@@ -361,7 +365,7 @@ func (a *app) UpdateUser(c *gin.Context) {
 
 	user, err := a.Database.GetUserById(uint64(id))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, NotFoundUserError(fmt.Errorf("cannot update non existent user")))
+		c.JSON(http.StatusBadRequest, NotFoundUserError("ID", fmt.Sprintf("%v, %v", idS, err)))
 		return
 	}
 
@@ -371,6 +375,7 @@ func (a *app) UpdateUser(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
 			return
 		}
+		savedToken = savedToken.(string)
 
 		token := auth.ExtractToken(c.Request)
 		if token != savedToken {
@@ -399,7 +404,6 @@ func (a *app) UpdateUser(c *gin.Context) {
 		return
 	}
 
-
 	tokenAuth, err := a.auth.ExtractTokenMetadata(c.Request)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
@@ -411,6 +415,7 @@ func (a *app) UpdateUser(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
 		return
 	}
+	accessUuid = accessUuid.(string)
 
 	if accessUuid != tokenAuth.AccessUuid || uint64(id) != tokenAuth.UserId {
 		c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
@@ -433,15 +438,14 @@ func (a *app) UpdateUser(c *gin.Context) {
 }
 
 func (a *app) PasswordReset(c *gin.Context) {
-	var body struct {link string `json:"redirectUrl"`; email string `json:"email"`}
-	if err := c.ShouldBindJSON(&body); err != nil {
+	var payload struct {Email string `json:"email"`; Redirect string `json:"redirect"`}
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		fmt.Println(err)
 		c.JSON(http.StatusBadRequest, InvalidBodyError(fmt.Errorf("email address and redirectUrl expected")))
 		return
 	}
 
-	fmt.Println(body)
-
-	u, exists, err := a.Database.UserExistsByCredentials(db.Credentials{Username: body.email})
+	u, exists, err := a.Database.UserExistsByCredentials(db.Credentials{Username: payload.Email})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, InternalServerError(fmt.Errorf("could not validate user")))
 		return
@@ -457,22 +461,24 @@ func (a *app) PasswordReset(c *gin.Context) {
 		return
 	}
 
+	token := uuid.NewV4().String()
+
+	err = a.resetPasswordClient.CreateAuth(c, payload.Email, []string{token, time.Now().Format(time.RFC3339)})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, InternalServerError(err))
+	}
+
 	creds := smtp.PlainAuth("", a.smtpConfig.MailServiceUsername, a.smtpConfig.MailServicePassword,
 		a.smtpConfig.SmtpHost)
-
-
-	token := uuid.NewV4().String()
-	err = SaveResetToken(c, a.resetPasswordClient, body.email, token)
-
-	// Here we do it all: connect to our server, set up a message and send it
-	msg := []byte("To: " + body.email + "\r\n" +
+	msg := []byte("To: " + payload.Email + "\r\n" +
 		"Subject: Reset Password\r\n" +
 		"\r\n" +
 		"Hi,\r\n " +
 		"use the following link to reset password. Link will be invalid in 15 minutes.\r\n" +
-		body.link + token +" \r\n")
+		payload.Redirect + token + "/" + payload.Email +" \r\n")
 
-	err = smtp.SendMail(a.smtpConfig.SmtpHost + ":" + a.smtpConfig.SmtpPort, creds, a.smtpConfig.From, []string{body.email}, msg)
+	err = smtp.SendMail(a.smtpConfig.SmtpHost + ":" + a.smtpConfig.SmtpPort, creds,
+			a.smtpConfig.From, []string{payload.Email}, msg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError,
 			InternalServerError(fmt.Errorf("sorry, could not send email: %v", err)))
@@ -483,20 +489,26 @@ func (a *app) PasswordReset(c *gin.Context) {
 }
 
 func (a *app) ValidateToken(c *gin.Context) {
-	var payload struct {token string `json:"token"`; email string `json:"email"`}
+	var payload struct {Token string `json:"token"`; Email string `json:"email"`}
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, InvalidBodyError(fmt.Errorf("email address and redirectUrl expected")))
 		return
 	}
 
-	savedToken, err := FetchResetToken(c, a.resetPasswordClient, payload.email)
+	savedTokenInfo, err := a.resetPasswordClient.FetchAuth(c, payload.Email)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, ResetPasswordError(err))
 		return
 	}
 
-	if savedToken != payload.token {
+	tokenInfo := savedTokenInfo.([]string)
+	if tokenInfo[0] != payload.Token {
 		c.JSON(http.StatusUnauthorized, ResetPasswordError(fmt.Errorf("unauthorized to update other's password")))
+		return
+	}
+
+	if tm, _ := time.Parse(time.RFC3339, tokenInfo[1]); time.Now().Sub(tm) > a.resetPassTokenDuration {
+		c.JSON(http.StatusUnauthorized, ResetPasswordError(fmt.Errorf("link already invalid")))
 		return
 	}
 
@@ -504,24 +516,30 @@ func (a *app) ValidateToken(c *gin.Context) {
 }
 
 func (a *app) UpdatePassword(c *gin.Context) {
-	var payload struct {mail string `json:"username"`; password string `json:"password"`; token string `json:"token"`}
+	var payload struct {Mail string `json:"username"`; Password string `json:"password"`; Token string `json:"token"`}
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, InvalidBodyError(fmt.Errorf("email address and redirectUrl expected")))
 		return
 	}
 
-	savedToken, err := FetchResetToken(c, a.resetPasswordClient, payload.mail)
+	savedTokenInfo, err := a.resetPasswordClient.FetchAuth(c, payload.Mail)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, ResetPasswordError(err))
 		return
 	}
 
-	if savedToken != payload.token {
+	tokenInfo := savedTokenInfo.([]string)
+	if tokenInfo[0] != payload.Token {
 		c.JSON(http.StatusUnauthorized, ResetPasswordError(fmt.Errorf("unauthorized to update other's password")))
 		return
 	}
 
-	deleted, err := DeleteResetToken(c, a.resetPasswordClient, payload.mail)
+	if tm, _ := time.Parse(time.RFC3339, tokenInfo[1]); time.Now().Sub(tm) > a.resetPassTokenDuration {
+		c.JSON(http.StatusUnauthorized, ResetPasswordError(fmt.Errorf("link already invalid")))
+		return
+	}
+
+	deleted, err := a.resetPasswordClient.DeleteAuth(c, payload.Mail)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
 		return
@@ -532,7 +550,7 @@ func (a *app) UpdatePassword(c *gin.Context) {
 		return
 	}
 
-	err = a.Database.ResetPassword(db.Credentials{Username: payload.mail,Password: payload.password})
+	err = a.Database.ResetPassword(db.Credentials{Username: payload.Mail, Password: payload.Password})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError,
 			InternalServerError(fmt.Errorf("could not update password: %s", err.Error())))
