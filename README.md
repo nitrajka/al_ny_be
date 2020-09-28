@@ -99,8 +99,16 @@ from a database. I spend approximately 50 hours with this project (including the
 ### Project structure 
 - `/pkg`
     - `/api` - API interface definition and implementation
+        - `api.go` - API implementation
+        - `api_test.go` - tests to test API functionality written in `api.go`
+        - `application.go` - main API application object which stores all of the configuration, defines API interface
+        - `errors.go` - custom defined errors
+        - `middleware.go` - middleware which is checking if user is authorized
     - `/auth` - authentication interface definition and implementation
     - `/db` - database interface definition and implementation
+        - `database.go` - defines interface for communication with database
+        - `mySqlDatabase.go` - implements communication interface for mysql database
+        - `models.go` - models used for communication between functions and to store database objects in code
         - `/scripts` - init script for the database
 - `/vendor` - dependencies
     
