@@ -3,15 +3,16 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/nitrajka/al_ny/pkg/auth"
-	"github.com/nitrajka/al_ny/pkg/db"
-	"github.com/twinj/uuid"
 	"io/ioutil"
 	"net/http"
 	"net/smtp"
 	"strconv"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/nitrajka/al_ny/pkg/auth"
+	"github.com/nitrajka/al_ny/pkg/db"
+	"github.com/twinj/uuid"
 )
 
 type UserServer struct {
@@ -31,7 +32,7 @@ func NewUserServer(app Application) (*UserServer, error) {
 	router.POST("/logout", app.Logout)
 	router.POST("/signup", app.Signup)
 
-	router.GET("/user/:id", app.TokenAuthMiddleWare(), app.GetUserById)
+	router.GET("/user/:id", app.TokenAuthMiddleWare(), app.GetUserByID)
 	router.PUT("/user/:id", app.TokenAuthMiddleWare(), app.UpdateUser)
 
 	router.POST("/password/reset", app.PasswordReset)
@@ -76,8 +77,8 @@ func (a *app) Login(c *gin.Context) {
 		return
 	}
 
-	if !db.CheckPasswordHash(cred.Password, user.Password)  {
-		c.JSON(http.StatusUnauthorized, IncorrectPasswordError(fmt.Errorf(user.Username)))
+	if !db.CheckPasswordHash(cred.Password, user.Password) {
+		c.JSON(http.StatusUnauthorized, IncorrectPasswordError(user.Username))
 		return
 	}
 
@@ -95,7 +96,7 @@ func (a *app) Login(c *gin.Context) {
 	c.Header("HttpOnly", "True")
 	resp := db.SignUpResponse{
 		Token: token.AccessToken,
-		User:  *db.DBUserToUser(*user),
+		User:  *db.DBUserToUser(user),
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -107,7 +108,7 @@ func (a *app) Logout(c *gin.Context) {
 		return
 	}
 
-	user, err := a.Database.GetUserById(id)
+	user, err := a.Database.GetUserByID(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, InternalServerError(fmt.Errorf("cannot logout non existent user")))
 		return
@@ -115,6 +116,10 @@ func (a *app) Logout(c *gin.Context) {
 
 	if user.SignedUpWithGoogle {
 		_, err = a.auth.DeleteAuth(c, strconv.Itoa(int(user.ID)))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, InternalServerError(err))
+			return
+		}
 		c.JSON(http.StatusOK, nil)
 		return
 	}
@@ -166,7 +171,7 @@ func (a *app) Signup(c *gin.Context) {
 		c.JSON(http.StatusConflict, InvalidLoginType(fmt.Errorf("such user already signed up with google")))
 		return
 	} else if exists {
-		c.JSON(http.StatusConflict, UserAlreadyExists(fmt.Errorf(u.Username)))
+		c.JSON(http.StatusConflict, UserAlreadyExists(u.Username))
 		return
 	}
 
@@ -192,14 +197,14 @@ func (a *app) Signup(c *gin.Context) {
 	c.Header("HttpOnly", "True")
 	c.JSON(http.StatusCreated, db.SignUpResponse{
 		Token: token.AccessToken,
-		User: *db.DBUserToUser(*u),
+		User:  *db.DBUserToUser(u),
 	})
 }
 
 func (a *app) GoogleLogin(c *gin.Context) {
 	token := auth.ExtractToken(c.Request)
 
-	response, err := http.Get(a.oauthGoogleUrlAPI + token)
+	response, err := http.Get(a.oauthGoogleURLAPI + token)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized,
 			UnauthorizedError(fmt.Errorf("could not validate google token, please sign up again")))
@@ -212,6 +217,8 @@ func (a *app) GoogleLogin(c *gin.Context) {
 			InternalServerError(fmt.Errorf("could not validate google token, please log in again later")))
 		return
 	}
+
+	response.Body.Close()
 
 	var gr *db.GoogleResponse
 	err = json.Unmarshal(contents, &gr)
@@ -249,17 +256,17 @@ func (a *app) GoogleLogin(c *gin.Context) {
 			return
 		}
 
-		t, err := a.auth.FetchAuth(c, strconv.Itoa(int(u.ID)))
-		if err != nil { // user is not authenticated, but exists
-			err = a.auth.CreateAuth(c, strconv.Itoa(int(u.ID)), token)
-			if err != nil {
+		t, err1 := a.auth.FetchAuth(c, strconv.Itoa(int(u.ID)))
+		if err1 != nil { // user is not authenticated, but exists
+			err2 := a.auth.CreateAuth(c, strconv.Itoa(int(u.ID)), token)
+			if err2 != nil {
 				c.JSON(http.StatusInternalServerError, InternalServerError(fmt.Errorf("could not create auth token")))
 				return
 			}
 
 			resp := &db.SignUpResponse{
 				Token: token,
-				User:  *db.DBUserToUser(*u),
+				User:  *db.DBUserToUser(u),
 			}
 
 			c.JSON(http.StatusOK, resp)
@@ -274,7 +281,7 @@ func (a *app) GoogleLogin(c *gin.Context) {
 
 		resp := &db.SignUpResponse{
 			Token: token,
-			User:  *db.DBUserToUser(*u),
+			User:  *db.DBUserToUser(u),
 		}
 
 		c.JSON(http.StatusOK, resp)
@@ -296,13 +303,13 @@ func (a *app) GoogleLogin(c *gin.Context) {
 
 	resp := &db.SignUpResponse{
 		Token: token,
-		User:  *db.DBUserToUser(*dbUser),
+		User:  *db.DBUserToUser(dbUser),
 	}
 
 	c.JSON(http.StatusOK, resp)
 }
 
-func (a *app) GetUserById(c *gin.Context) {
+func (a *app) GetUserByID(c *gin.Context) {
 	idS := c.Param("id")
 	id, err := strconv.Atoi(idS)
 	if err != nil {
@@ -310,16 +317,16 @@ func (a *app) GetUserById(c *gin.Context) {
 		return
 	}
 
-	u, err := a.Database.GetUserById(uint64(id))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, NotFoundUserError("ID", fmt.Sprintf("%v. database error %v", u.ID, err)))
+	u, err1 := a.Database.GetUserByID(uint64(id))
+	if err1 != nil {
+		c.JSON(http.StatusBadRequest, NotFoundUserError("ID", fmt.Sprintf("%v. database error %v", u.ID, err1)))
 		return
 	}
 
 	if u.SignedUpWithGoogle {
-		savedToken, err := a.auth.FetchAuth(c, idS)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, UnauthorizedError(err))
+		savedToken, err2 := a.auth.FetchAuth(c, idS)
+		if err2 != nil {
+			c.JSON(http.StatusUnauthorized, UnauthorizedError(err2))
 			return
 		}
 		savedToken = savedToken.(string)
@@ -330,29 +337,29 @@ func (a *app) GetUserById(c *gin.Context) {
 			return
 		}
 
-		c.JSON(http.StatusOK, db.DBUserToUser(*u))
+		c.JSON(http.StatusOK, db.DBUserToUser(u))
 		return
 	}
 
-	tokenAuth, err := a.auth.ExtractTokenMetadata(c.Request)
-	if err != nil {
+	tokenAuth, err2 := a.auth.ExtractTokenMetadata(c.Request)
+	if err2 != nil {
 		c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
 		return
 	}
 
-	accessUuid, err := a.auth.FetchAuth(c, strconv.Itoa(int(tokenAuth.UserId)))
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, UnauthorizedError(err))
+	accessUUID, err3 := a.auth.FetchAuth(c, strconv.Itoa(int(tokenAuth.UserId)))
+	if err3 != nil {
+		c.JSON(http.StatusUnauthorized, UnauthorizedError(err3))
 		return
 	}
-	accessUuid = accessUuid.(string)
+	accessUUID = accessUUID.(string)
 
-	if accessUuid != tokenAuth.AccessUuid || uint64(id) != tokenAuth.UserId {
-		c.JSON(http.StatusUnauthorized,  UnauthorizedError(nil))
+	if accessUUID != tokenAuth.AccessUuid || uint64(id) != tokenAuth.UserId {
+		c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
 		return
 	}
 
-	c.JSON(http.StatusOK, db.DBUserToUser(*u))
+	c.JSON(http.StatusOK, db.DBUserToUser(u))
 }
 
 func (a *app) UpdateUser(c *gin.Context) {
@@ -363,15 +370,15 @@ func (a *app) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	user, err := a.Database.GetUserById(uint64(id))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, NotFoundUserError("ID", fmt.Sprintf("%v, %v", idS, err)))
+	user, err1 := a.Database.GetUserByID(uint64(id))
+	if err1 != nil {
+		c.JSON(http.StatusBadRequest, NotFoundUserError("ID", fmt.Sprintf("%v, %v", idS, err1)))
 		return
 	}
 
 	if user.SignedUpWithGoogle {
-		savedToken, err := a.auth.FetchAuth(c, idS)
-		if err != nil {
+		savedToken, err2 := a.auth.FetchAuth(c, idS)
+		if err2 != nil {
 			c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
 			return
 		}
@@ -384,7 +391,7 @@ func (a *app) UpdateUser(c *gin.Context) {
 		}
 
 		var u *db.UpdateUserBodyGoogleSigned
-		if err := c.ShouldBindJSON(&u); err != nil {
+		if err3 := c.ShouldBindJSON(&u); err3 != nil {
 			c.JSON(http.StatusBadRequest, InvalidBodyError(fmt.Errorf("expected fullname, phone, and address")))
 			return
 		}
@@ -393,52 +400,54 @@ func (a *app) UpdateUser(c *gin.Context) {
 		user.Address = u.Address
 		user.Phone = u.Phone
 
-		newUser, err := a.Database.UpdateUser(db.DBUserToUpdateUserBody(*user), uint64(id))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, InternalServerError(fmt.Errorf("could not update user, database error: %v", err)))
+		newUser, err3 := a.Database.UpdateUser(db.DBUserToUpdateUserBody(user), uint64(id))
+		if err3 != nil {
+			c.JSON(http.StatusInternalServerError, InternalServerError(fmt.Errorf("could not update user, database error: %v", err3)))
 			return
 		}
 
-
-		c.JSON(http.StatusOK, db.DBUserToUser(*newUser))
+		c.JSON(http.StatusOK, db.DBUserToUser(newUser))
 		return
 	}
 
-	tokenAuth, err := a.auth.ExtractTokenMetadata(c.Request)
-	if err != nil {
+	tokenAuth, err2 := a.auth.ExtractTokenMetadata(c.Request)
+	if err2 != nil {
 		c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
 		return
 	}
 
-	accessUuid, err := a.auth.FetchAuth(c, strconv.Itoa(int(tokenAuth.UserId)))
-	if err != nil {
+	accessUUID, err3 := a.auth.FetchAuth(c, strconv.Itoa(int(tokenAuth.UserId)))
+	if err3 != nil {
 		c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
 		return
 	}
-	accessUuid = accessUuid.(string)
+	accessUUID = accessUUID.(string)
 
-	if accessUuid != tokenAuth.AccessUuid || uint64(id) != tokenAuth.UserId {
+	if accessUUID != tokenAuth.AccessUuid || uint64(id) != tokenAuth.UserId {
 		c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
 		return
 	}
 
 	var u *db.UpdateUserBody
-	if err := c.ShouldBindJSON(&u); err != nil {
+	if err4 := c.ShouldBindJSON(&u); err4 != nil {
 		c.JSON(http.StatusBadRequest, InvalidBodyError(fmt.Errorf("expected username, fullname, phone, and address")))
 		return
 	}
 
-	newUser, err := a.Database.UpdateUser(u, uint64(id))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, InternalServerError(fmt.Errorf("could not update user: %v", err)))
+	newUser, err4 := a.Database.UpdateUser(u, uint64(id))
+	if err4 != nil {
+		c.JSON(http.StatusInternalServerError, InternalServerError(fmt.Errorf("could not update user: %v", err4)))
 		return
 	}
 
-	c.JSON(http.StatusOK, db.DBUserToUser(*newUser))
+	c.JSON(http.StatusOK, db.DBUserToUser(newUser))
 }
 
 func (a *app) PasswordReset(c *gin.Context) {
-	var payload struct {Email string `json:"email"`; Redirect string `json:"redirect"`}
+	var payload struct {
+		Email    string `json:"email"`
+		Redirect string `json:"redirect"`
+	}
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		fmt.Println(err)
 		c.JSON(http.StatusBadRequest, InvalidBodyError(fmt.Errorf("email address and redirectUrl expected")))
@@ -469,16 +478,16 @@ func (a *app) PasswordReset(c *gin.Context) {
 	}
 
 	creds := smtp.PlainAuth("", a.smtpConfig.MailServiceUsername, a.smtpConfig.MailServicePassword,
-		a.smtpConfig.SmtpHost)
+		a.smtpConfig.SMTPHost)
 	msg := []byte("To: " + payload.Email + "\r\n" +
 		"Subject: Reset Password\r\n" +
 		"\r\n" +
 		"Hi,\r\n " +
 		"use the following link to reset password. Link will be invalid in 15 minutes.\r\n" +
-		payload.Redirect + token + "/" + payload.Email +" \r\n")
+		payload.Redirect + token + "/" + payload.Email + " \r\n")
 
-	err = smtp.SendMail(a.smtpConfig.SmtpHost + ":" + a.smtpConfig.SmtpPort, creds,
-			a.smtpConfig.From, []string{payload.Email}, msg)
+	err = smtp.SendMail(a.smtpConfig.SMTPHost+":"+a.smtpConfig.SMTPPort, creds,
+		a.smtpConfig.From, []string{payload.Email}, msg)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError,
 			InternalServerError(fmt.Errorf("sorry, could not send email: %v", err)))
@@ -489,7 +498,10 @@ func (a *app) PasswordReset(c *gin.Context) {
 }
 
 func (a *app) ValidateToken(c *gin.Context) {
-	var payload struct {Token string `json:"token"`; Email string `json:"email"`}
+	var payload struct {
+		Token string `json:"token"`
+		Email string `json:"email"`
+	}
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, InvalidBodyError(fmt.Errorf("email address and redirectUrl expected")))
 		return
@@ -507,7 +519,7 @@ func (a *app) ValidateToken(c *gin.Context) {
 		return
 	}
 
-	if tm, _ := time.Parse(time.RFC3339, tokenInfo[1]); time.Now().Sub(tm) > a.resetPassTokenDuration {
+	if tm, _ := time.Parse(time.RFC3339, tokenInfo[1]); time.Since(tm) > a.resetPassTokenDuration {
 		c.JSON(http.StatusUnauthorized, ResetPasswordError(fmt.Errorf("link already invalid")))
 		return
 	}
@@ -516,7 +528,11 @@ func (a *app) ValidateToken(c *gin.Context) {
 }
 
 func (a *app) UpdatePassword(c *gin.Context) {
-	var payload struct {Mail string `json:"username"`; Password string `json:"password"`; Token string `json:"token"`}
+	var payload struct {
+		Mail     string `json:"username"`
+		Password string `json:"password"`
+		Token    string `json:"token"`
+	}
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		c.JSON(http.StatusBadRequest, InvalidBodyError(fmt.Errorf("email address and redirectUrl expected")))
 		return
@@ -534,7 +550,7 @@ func (a *app) UpdatePassword(c *gin.Context) {
 		return
 	}
 
-	if tm, _ := time.Parse(time.RFC3339, tokenInfo[1]); time.Now().Sub(tm) > a.resetPassTokenDuration {
+	if tm, _ := time.Parse(time.RFC3339, tokenInfo[1]); time.Since(tm) > a.resetPassTokenDuration {
 		c.JSON(http.StatusUnauthorized, ResetPasswordError(fmt.Errorf("link already invalid")))
 		return
 	}

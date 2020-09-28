@@ -2,7 +2,7 @@ package api
 
 import "fmt"
 
-func NotFoundUserError(key string, value string) string {
+func NotFoundUserError(key, value string) string {
 	return fmt.Sprintf("User with %v: %v does not exist.\n", key, value)
 }
 
@@ -15,29 +15,29 @@ func InvalidLoginType(err error) string {
 }
 
 func InternalServerError(err error) string {
-	return fmt.Sprintf("Oops, something went wrong, try later: %v.\n", err)
+	return fmt.Sprintf("Oops, something went wrong, try later: %v.", err)
 }
 
-func IncorrectPasswordError(err error) string {
-	return fmt.Sprintf("Incorrect password for user %v\n", err.Error())
+func IncorrectPasswordError(user string) string {
+	return fmt.Sprintf("Incorrect password for user %v.", user)
 }
 
 func UnauthorizedError(err error) string {
 	return fmt.Sprintf("Unauthorized action. Must provide valid credentials. Please, log in correctly. %v\n", err)
 }
 
-func UserAlreadyExists(err error) string {
-	return fmt.Sprintf("User with username %v already exists.", err.Error())
+func UserAlreadyExists(username string) string {
+	return fmt.Sprintf("User with username %v already exists.", username)
 }
 
 func InvalidPathParam(err error) string {
-	return fmt.Sprintf("Please, provide valid path param. %v\n", err.Error())
+	return fmt.Sprintf("Please, provide valid path parameter. %v\n", err.Error())
 }
 
 func ResetPasswordError(err error) string {
-	return fmt.Sprintf("An error occured during password reset: %v", err)
+	return fmt.Sprintf("An error occurred during password reset: %v", err)
 }
 
 func UnauthorizedEmail() string {
-	return fmt.Sprintf("For security reasons, this email is not allowed fto reset password. Please contact author to change that.")
+	return "For security reasons, this email is not allowed fto reset password. Please contact author to change that."
 }

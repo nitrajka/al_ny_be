@@ -1,36 +1,37 @@
 package api
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/nitrajka/al_ny/pkg/auth"
 	"github.com/nitrajka/al_ny/pkg/db"
-	"time"
 )
 
 type app struct {
 	db.Database
-	auth auth.Authentication
-	oauthGoogleUrlAPI string
-	smtpConfig *SmtpConfig
-	resetPasswordClient auth.Authentication
+	auth                   auth.Authentication
+	oauthGoogleURLAPI      string
+	smtpConfig             *SMTPConfig
+	resetPasswordClient    auth.Authentication
 	resetPassTokenDuration time.Duration
 }
 
-type SmtpConfig struct {
+type SMTPConfig struct {
 	MailServiceUsername string
 	MailServicePassword string
-	From string
-	SmtpHost string
-	SmtpPort string
+	From                string
+	SMTPHost            string
+	SMTPPort            string
 }
 
-func NewSmtpConfig(msu, msp, f, smtpHost, smtpPort string) *SmtpConfig {
-	return &SmtpConfig{
+func NewSMTPConfig(msu, msp, f, smtpHost, smtpPort string) *SMTPConfig {
+	return &SMTPConfig{
 		MailServiceUsername: msu,
 		MailServicePassword: msp,
 		From:                f,
-		SmtpHost:            smtpHost,
-		SmtpPort:            smtpPort,
+		SMTPHost:            smtpHost,
+		SMTPPort:            smtpPort,
 	}
 }
 
@@ -40,7 +41,7 @@ type Application interface {
 	Signup(c *gin.Context)
 	GoogleLogin(c *gin.Context)
 	UpdateUser(c *gin.Context)
-	GetUserById(c *gin.Context)
+	GetUserByID(c *gin.Context)
 	PasswordReset(c *gin.Context)
 	TokenAuthMiddleWare() gin.HandlerFunc
 	ValidateToken(c *gin.Context)
@@ -48,7 +49,7 @@ type Application interface {
 	Test(c *gin.Context)
 }
 
-func NewApp(datab db.Database, aut auth.Authentication, config *SmtpConfig, rc auth.Authentication) (Application, error) {
+func NewApp(datab db.Database, aut auth.Authentication, config *SMTPConfig, rc auth.Authentication) (Application, error) {
 	return &app{
 		datab,
 		aut,

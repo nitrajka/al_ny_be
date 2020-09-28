@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/nitrajka/al_ny/pkg/api"
 	"github.com/nitrajka/al_ny/pkg/auth"
 	"github.com/nitrajka/al_ny/pkg/db"
-	"os"
 )
 
 func main() {
@@ -18,12 +19,11 @@ func main() {
 	}
 
 	rc := auth.NewSessionAuth([]byte(os.Getenv("RESET_PASS_SESS_SECRET")), "resetpass") // todo
-	authent := auth.NewSessionAuth([]byte(os.Getenv("AUTH_SECRET")), "default") //todo
+	authent := auth.NewSessionAuth([]byte(os.Getenv("AUTH_SECRET")), "default")         //todo
 
-	config := api.NewSmtpConfig(os.Getenv("EMAIL_SERVICE_USERNAME"),
+	config := api.NewSMTPConfig(os.Getenv("EMAIL_SERVICE_USERNAME"),
 		os.Getenv("EMAIL_SERVICE_PASSWORD"), os.Getenv("EMAIL_FROM_FIELD"),
 		os.Getenv("SMTP_HOST"), os.Getenv("SMTP_PORT"))
-
 
 	app, err := api.NewApp(datab, authent, config, rc)
 	if err != nil {

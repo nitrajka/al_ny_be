@@ -3,21 +3,22 @@ package auth
 import (
 	"errors"
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
-	"github.com/twinj/uuid"
 	"net/http"
 	"os"
 	"strconv"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/twinj/uuid"
 )
 
 type tokenservice struct{}
 
-func NewTokenService() *tokenservice {
+func newTokenService() *tokenservice {
 	return &tokenservice{}
 }
 
 type TokenInterface interface {
-	CreateToken(userId uint64) (*AuthToken, error)
+	CreateToken(userID uint64) (*AuthToken, error)
 	ExtractTokenMetadata(*http.Request) (*AccessDetails, error)
 }
 
@@ -48,18 +49,18 @@ func (t *tokenservice) ExtractTokenMetadata(r *http.Request) (*AccessDetails, er
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if ok && token.Valid {
-		accessUuid, ok := claims["access_uuid"].(string)
+		accessUUID, ok := claims["access_uuid"].(string)
 		if !ok {
 			return nil, err
 		}
 
-		userId, err := strconv.ParseUint(fmt.Sprintf("%.f", claims["user_id"]), 10, 64)
+		userID, err := strconv.ParseUint(fmt.Sprintf("%.f", claims["user_id"]), 10, 64)
 		if err != nil {
 			return nil, err
 		}
 		return &AccessDetails{
-			AccessUuid: accessUuid,
-			UserId:     userId,
+			AccessUuid: accessUUID,
+			UserId:     userID,
 		}, nil
 	}
 	return nil, errors.New("could not decode claims from token")

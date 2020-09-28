@@ -3,13 +3,14 @@ package auth
 import (
 	"errors"
 	"fmt"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/sessions"
 )
 
 type sessionClient struct {
 	sessionsStore *sessions.CookieStore
-	session *sessions.Session
+	session       *sessions.Session
 	*tokenservice
 	sessionName string
 }
@@ -18,8 +19,9 @@ func NewSessionAuth(key []byte, sessionName string) Authentication {
 	store := sessions.NewCookieStore(key)
 	return &sessionClient{
 		sessionsStore: store,
-		session: sessions.NewSession(store, sessionName),
-		tokenservice: NewTokenService(),
+		session:       sessions.NewSession(store, sessionName),
+		tokenservice:  newTokenService(),
+		sessionName:   sessionName,
 	}
 }
 

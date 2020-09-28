@@ -16,36 +16,36 @@ import (
 
 type mockDB struct {
 	inPlace map[uint64]*db.DBUser
-	lastId  uint64
+	lastID  uint64
 }
 
 func (q *mockDB) CreateUser(u *db.DBUser) (*db.DBUser, error) {
-	u.ID = q.lastId + 1
-	q.lastId += 1
+	u.ID = q.lastID + 1
+	q.lastID++
 	u.Password, _ = db.HashPassword(u.Password)
 	q.inPlace[u.ID] = u
 
 	return u, nil
 }
 
-func (q *mockDB) GetUserById(ID uint64) (*db.DBUser, error) {
-	if ID > q.lastId {
+func (q *mockDB) GetUserByID(id uint64) (*db.DBUser, error) {
+	if id > q.lastID {
 		return &db.DBUser{}, errors.New("sorry, such user does not exist")
 	}
 
-	return q.inPlace[ID], nil
+	return q.inPlace[id], nil
 }
 
-func (q *mockDB) UpdateUser(u *db.UpdateUserBody, userId uint64) (*db.DBUser, error) {
-	if userId > q.lastId {
+func (q *mockDB) UpdateUser(u *db.UpdateUserBody, userID uint64) (*db.DBUser, error) {
+	if userID > q.lastID {
 		return &db.DBUser{}, errors.New("sorry, such user does not exist")
 	}
 
-	oldUser := q.inPlace[userId]
+	oldUser := q.inPlace[userID]
 
 	newUser := &db.DBUser{
 		ID:          oldUser.ID,
-		Credentials: db.Credentials{u.Username, oldUser.Password},
+		Credentials: db.Credentials{Username: u.Username, Password: oldUser.Password},
 		FullName:    u.FullName,
 		Address:     u.Address,
 		Phone:       u.Phone,
@@ -72,16 +72,10 @@ func (q *mockDB) ResetPassword(c db.Credentials) error {
 func TestAuthWithPassword(t *testing.T) {
 	p1, _ := db.HashPassword("password")
 	datab := &mockDB{inPlace: map[uint64]*db.DBUser{
-		1: {1, db.Credentials{"email@example.com", p1},
-			"DBUser Novotny", "09090909", "cool address", false},
-		2: {2, db.Credentials{"example@gmail.com", p1},
-			"DBUser Pekna", "090909", "very cool address", true},
-	}, lastId: 1}
-
-	//aut, err := auth.NewRedisAuthentication("localhost:7001")
-	//if err != nil {
-	//	t.Errorf("could not connect to redis")
-	//}
+		1: {ID: 1, Credentials: db.Credentials{Username: "email@example.com", Password: p1},
+			FullName: "DBUser Novotny", Phone: "09090909", Address: "cool address", SignedUpWithGoogle: false},
+		2: {ID: 2, Credentials: db.Credentials{Username: "example@gmail.com", Password: p1}, SignedUpWithGoogle: true},
+	}, lastID: 1}
 
 	aut := auth.NewSessionAuth([]byte("secret-key"), "secret-session")
 
@@ -102,9 +96,8 @@ func TestAuthWithPassword(t *testing.T) {
 		server.ServeHTTP(response, request)
 		userWithToken := getUserWithToken(t, response.Body)
 
-
 		assertStatus(t, response.Code, http.StatusOK)
-		assertUser(t, userWithToken.User, *db.DBUserToUser(*datab.inPlace[1]))
+		assertUser(t, userWithToken.User, *db.DBUserToUser(datab.inPlace[1]))
 
 		request = newPostLogoutRequest(t, userWithToken.Token, userWithToken.User.ID)
 		response = httptest.NewRecorder()
@@ -113,7 +106,7 @@ func TestAuthWithPassword(t *testing.T) {
 		msg := getMessageFromResponse(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusOK)
-		assertMessage(t, msg,"successfully logged out")
+		assertMessage(t, msg, "successfully logged out")
 	})
 
 	t.Run("test empty login credentials", func(t *testing.T) {
@@ -125,7 +118,7 @@ func TestAuthWithPassword(t *testing.T) {
 		//token := getTokenFromResponse(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusBadRequest)
-		assertMessage(t, msg, "fields must not be empty")
+		assertMessage(t, msg, InvalidBodyError(fmt.Errorf("fields must not be empty")))
 		//tokenValid()
 	})
 
@@ -137,7 +130,7 @@ func TestAuthWithPassword(t *testing.T) {
 		body := getMessageFromResponse(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusNotFound)
-		assertMessage(t, body, "such user does not exist")
+		assertMessage(t, body, NotFoundUserError("email", "emailf@example.com"))
 	})
 
 	t.Run("test bad password", func(t *testing.T) {
@@ -148,7 +141,7 @@ func TestAuthWithPassword(t *testing.T) {
 		body := getMessageFromResponse(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusUnauthorized)
-		assertMessage(t, body, "incorrect password for this user")
+		assertMessage(t, body, IncorrectPasswordError("email@example.com"))
 	})
 
 	t.Run("test login with password when previous google registration", func(t *testing.T) {
@@ -159,7 +152,7 @@ func TestAuthWithPassword(t *testing.T) {
 		body := getMessageFromResponse(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusConflict)
-		assertMessage(t, body, "please use the kind of login you used while registration")
+		assertMessage(t, body, InvalidLoginType(nil))
 	})
 
 	t.Run("test signup successful", func(t *testing.T) {
@@ -169,7 +162,7 @@ func TestAuthWithPassword(t *testing.T) {
 
 		server.ServeHTTP(response, request)
 		body := getUserWithToken(t, response.Body)
-		expected := &db.SignUpResponse{Token:"", User: db.User{
+		expected := &db.SignUpResponse{Token: "", User: db.User{
 			ID: 2, Username: newMail, FullName: "", Phone: "", Address: "", SignedUpWithGoogle: false}}
 
 		assertStatus(t, response.Code, http.StatusCreated)
@@ -184,20 +177,18 @@ func TestAuthWithPassword(t *testing.T) {
 		body := getMessageFromResponse(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusConflict)
-		assertMessage(t, body, "such username already exists")
+		assertMessage(t, body, UserAlreadyExists("email@example.com"))
 	})
 }
 
 func TestUsersWithPasswordAuth(t *testing.T) {
 	p1, _ := db.HashPassword("password")
 	datab := &mockDB{inPlace: map[uint64]*db.DBUser{
-		1: {1, db.Credentials{"email@example.com", p1},
-			"Petra Novotna", "09090909", "cool address", false},
-		2: {2, db.Credentials{"example@gmail.com", p1},
-			"Katka Pekna", "090909", "very cool address", true},
-		3: {3, db.Credentials{"mail@example.com", p1},
-			"Janko Mrkvicka", "090909", "lives with Katka", false},
-	}, lastId: 1}
+		1: {ID: 1, Credentials: db.Credentials{Username: "email@example.com", Password: p1},
+			FullName: "Petra Novotna", Phone: "09090909", Address: "cool address", SignedUpWithGoogle: false},
+		2: {ID: 2, Credentials: db.Credentials{Username: "example@gmail.com", Password: p1}, SignedUpWithGoogle: true},
+		3: {ID: 3, Credentials: db.Credentials{Username: "mail@example.com", Password: p1}, SignedUpWithGoogle: false},
+	}, lastID: 1}
 
 	aut := auth.NewSessionAuth([]byte("secret-key"), "secret-session-name")
 
@@ -219,8 +210,7 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 		userWithToken := getUserWithToken(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusOK)
-		assertUser(t, userWithToken.User, *db.DBUserToUser(*datab.inPlace[1]))
-
+		assertUser(t, userWithToken.User, *db.DBUserToUser(datab.inPlace[1]))
 
 		fmt.Println(userWithToken.Token, userWithToken.User.ID)
 		request = newGetUserRequest(t, userWithToken.Token, userWithToken.User.ID)
@@ -230,8 +220,7 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 		user := getUserFromResponse(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusOK)
-		assertUser(t, *db.DBUserToUser(*datab.inPlace[1]), *user)
-
+		assertUser(t, *db.DBUserToUser(datab.inPlace[1]), *user)
 	})
 
 	t.Run("update user successfully", func(t *testing.T) {
@@ -242,8 +231,7 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 		userWithToken := getUserWithToken(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusOK)
-		assertUser(t, userWithToken.User, *db.DBUserToUser(*datab.inPlace[1]))
-
+		assertUser(t, userWithToken.User, *db.DBUserToUser(datab.inPlace[1]))
 
 		dbuser := datab.inPlace[1]
 		user := &db.UpdateUserBody{
@@ -259,7 +247,7 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 		server.ServeHTTP(response, request)
 		newUser := getUserFromResponse(t, response.Body)
 
-		expected := db.DBUserToUser(*dbuser)
+		expected := db.DBUserToUser(dbuser)
 		expected.FullName = "Petra Novakova"
 
 		assertStatus(t, response.Code, http.StatusOK)
@@ -276,7 +264,7 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 		msg := getMessageFromResponse(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusUnauthorized)
-		assertMessage(t, msg, "unauthorized")
+		assertMessage(t, msg, UnauthorizedError(nil))
 	})
 
 	t.Run("cannot update user without auth", func(t *testing.T) {
@@ -296,26 +284,7 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 		msg := getMessageFromResponse(t, response.Body)
 
 		assertStatus(t, response.Code, http.StatusUnauthorized)
-		assertMessage(t, msg, "unauthorized")
-	})
-
-	t.Run("cannot update user without auth", func(t *testing.T) {
-		dbuser := datab.inPlace[3]
-		user := &db.UpdateUserBody{
-			Username: dbuser.Username,
-			FullName: dbuser.FullName,
-			Phone:    dbuser.Phone,
-			Address:  dbuser.Address,
-		}
-		user.FullName = "Petra Novakova"
-		request := newPutUserRequest(t, user, invalidToken, dbuser.ID)
-		response := httptest.NewRecorder()
-
-		server.ServeHTTP(response, request)
-		msg := getMessageFromResponse(t, response.Body)
-
-		assertStatus(t, response.Code, http.StatusUnauthorized)
-		assertMessage(t, msg, "signature is invalid")
+		assertMessage(t, msg, UnauthorizedError(nil))
 	})
 }
 
@@ -355,8 +324,8 @@ func newPostSignupRequest(t *testing.T, username, password string) *http.Request
 	return req
 }
 
-func newGetUserRequest(t *testing.T, token string, userId uint64) *http.Request {
-	path := "/user/" + fmt.Sprintf(`%d`, userId)
+func newGetUserRequest(t *testing.T, token string, userID uint64) *http.Request {
+	path := "/user/" + fmt.Sprintf(`%d`, userID)
 	req, err := http.NewRequest(http.MethodGet, path, nil)
 	if err != nil {
 		t.Errorf("something went wrong creating a request: %v", err)
@@ -366,8 +335,8 @@ func newGetUserRequest(t *testing.T, token string, userId uint64) *http.Request 
 	return req
 }
 
-func newPutUserRequest(t *testing.T, u *db.UpdateUserBody, token string, userId uint64) *http.Request {
-	path := "/user/" + fmt.Sprintf(`%d`, userId)
+func newPutUserRequest(t *testing.T, u *db.UpdateUserBody, token string, userID uint64) *http.Request {
+	path := "/user/" + fmt.Sprintf(`%d`, userID)
 	req, err := http.NewRequest(
 		http.MethodPut,
 		path,

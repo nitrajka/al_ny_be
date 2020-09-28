@@ -17,7 +17,7 @@ func (a *app) TokenAuthMiddleWare() gin.HandlerFunc {
 
 		_, err = a.auth.FetchAuth(c, idS)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, "Auth signature is invalid. Please, login correctly first.")
+			c.JSON(http.StatusUnauthorized, UnauthorizedError(nil))
 			c.Abort()
 			return
 		}

@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+
 	_ "github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -30,12 +31,12 @@ func CheckPasswordHash(password, hash string) bool {
 }
 
 type mysqlUser struct {
-	id int64
-	username string
-	password string
-	fullname string
-	phone string
-	address string
+	id             int64
+	username       string
+	password       string
+	fullname       string
+	phone          string
+	address        string
 	signedUpGoogle bool
 }
 
@@ -76,7 +77,7 @@ func (d *dbClient) CreateUser(u *DBUser) (*DBUser, error) {
 	return u, nil
 }
 
-func (d *dbClient) GetUserById(ID uint64) (*DBUser, error) {
+func (d *dbClient) GetUserByID(ID uint64) (*DBUser, error) {
 	query, err := d.mysql.Prepare("SELECT id, username, password, fullname, phone, address, signedUpGoogle from users WHERE id = ?")
 	if err != nil {
 		return &DBUser{}, err
@@ -106,19 +107,15 @@ func (d *dbClient) GetUserById(ID uint64) (*DBUser, error) {
 }
 
 func (d *dbClient) UpdateUser(u *UpdateUserBody, id uint64) (*DBUser, error) { // password?
-	query, err := d.mysql.Prepare("UPDATE users SET username = ?, fullname = ?, phone = ?, address = ? WHERE id = ?")
+	query, _ := d.mysql.Prepare("UPDATE users SET username = ?, fullname = ?, phone = ?, address = ? WHERE id = ?")
 
-	_, err = query.Exec(u.Username, u.FullName, u.Phone, u.Address, id)
-	if err != nil {
+	if _, err := query.Exec(u.Username, u.FullName, u.Phone, u.Address, id); err != nil {
 		return &DBUser{}, err
 	}
 
-	dbUser, err := d.GetUserById(id)
-	if err != nil {
-		return &DBUser{}, err
-	}
+	dbUser, err := d.GetUserByID(id)
 
-	return dbUser, nil
+	return dbUser, err
 }
 
 func (d *dbClient) UserExistsByCredentials(cred Credentials) (*DBUser, bool, error) {
@@ -154,7 +151,8 @@ func (d *dbClient) UserExistsByCredentials(cred Credentials) (*DBUser, bool, err
 }
 
 func (d *dbClient) ResetPassword(cred Credentials) error {
-	query, err := d.mysql.Prepare("UPDATE users SET password = ? WHERE username = ?")
+	query, _ := d.mysql.Prepare("UPDATE u" +
+		"sers SET password = ? WHERE username = ?")
 
 	hashedP, err := HashPassword(cred.Password)
 	if err != nil {
@@ -162,9 +160,6 @@ func (d *dbClient) ResetPassword(cred Credentials) error {
 	}
 
 	_, err = query.Exec(hashedP, cred.Username)
-	if err != nil {
-		return err
-	}
 
-	return nil
+	return err
 }
