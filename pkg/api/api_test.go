@@ -65,6 +65,10 @@ func (q *mockDB) UserExistsByCredentials(cred db.Credentials) (*db.DBUser, bool,
 	return &db.DBUser{}, false, nil
 }
 
+func (q *mockDB) ResetPassword(c db.Credentials) error {
+	return nil
+}
+
 func TestAuthWithPassword(t *testing.T) {
 	p1, _ := db.HashPassword("password")
 	datab := &mockDB{inPlace: map[uint64]*db.DBUser{
@@ -79,9 +83,9 @@ func TestAuthWithPassword(t *testing.T) {
 	//	t.Errorf("could not connect to redis")
 	//}
 
-	aut := auth.NewSessionAuth([]byte("secret-key"))
+	aut := auth.NewSessionAuth([]byte("secret-key"), "secret-session")
 
-	ma, err := NewApp(datab, aut)
+	ma, err := NewApp(datab, aut, nil, aut)
 	if err != nil {
 		t.Error("could not create App")
 	}
@@ -195,9 +199,9 @@ func TestUsersWithPasswordAuth(t *testing.T) {
 			"Janko Mrkvicka", "090909", "lives with Katka", false},
 	}, lastId: 1}
 
-	aut := auth.NewSessionAuth([]byte("secret-key"))
+	aut := auth.NewSessionAuth([]byte("secret-key"), "secret-session-name")
 
-	ma, err := NewApp(datab, aut)
+	ma, err := NewApp(datab, aut, nil, aut)
 	if err != nil {
 		t.Error("could not create App")
 	}
